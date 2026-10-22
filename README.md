@@ -2,7 +2,7 @@
 
 Scripts para PixInsight de astrocrincon y preparación de su repositorio de actualizaciones.
 
-**Estado: preparación inicial. Todavía no hay ningún script ni actualización instalable.**
+**Estado: desarrollo. Hay dos scripts provisionales; todavía no hay una versión publicada mediante el gestor de actualizaciones.**
 
 ## Estructura
 
@@ -17,7 +17,7 @@ Scripts para PixInsight de astrocrincon y preparación de su repositorio de actu
 
 ## Próximo paso
 
-Incorporar la versión actual del script y sus dependencias, indicar las versiones de PixInsight comprobadas y completar el registro CPD. Las claves `.xssk` y su contraseña permanecen fuera del repositorio.
+Trabajar sobre los dos scripts provisionales, revisar sus dependencias y comprobarlos en PixInsight antes de preparar la primera versión firmada. Véase [Estado de desarrollo](docs/desarrollo.md). Las claves `.xssk` y su contraseña permanecen fuera del repositorio.
 
 La guía [Publicar una versión](docs/publicacion.md) explica el procedimiento. El empaquetador requiere Python 3.9 o posterior y solo utiliza la biblioteca estándar.
 
