@@ -1,6 +1,6 @@
 # pixinsight-scripts
 
-Scripts para PixInsight de astrocrincon y preparación de su repositorio de actualizaciones.
+Scripts para PixInsight de crinconlab y preparación de su repositorio de actualizaciones.
 
 **Estado: desarrollo. Hay dos scripts provisionales; todavía no hay una versión publicada mediante el gestor de actualizaciones.**
 
@@ -24,7 +24,7 @@ La guía [Publicar una versión](docs/publicacion.md) explica el procedimiento. 
 ## Dirección prevista para PixInsight
 
 ```text
-https://raw.githubusercontent.com/astrocrincon/pixinsight-scripts/main/repository/
+https://raw.githubusercontent.com/crinconlab/pixinsight-scripts/main/repository/
 ```
 
 Esta dirección se podrá añadir al gestor de actualizaciones cuando contenga el primer `updates.xri` y su paquete comprobado. No es necesario activar GitHub Pages para este alojamiento.

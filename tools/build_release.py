@@ -95,7 +95,7 @@ def build(config, source, output, release_date):
             raise ValueError("Este paquete ya existe; no se sobrescribe: " + str(destination))
         archive.rename(work / filename)
         root = ET.Element("xri", version="1.0")
-        ET.SubElement(ET.SubElement(root, "description"), "p").text = "PixInsight scripts — astrocrincon"
+        ET.SubElement(ET.SubElement(root, "description"), "p").text = "PixInsight scripts — crinconlab"
         platform = ET.SubElement(root, "platform", os="all", arch="noarch", version=config["pixinsight_versions"])
         package = ET.SubElement(platform, "package", fileName=filename, sha1=sha1,
                                 type="script", releaseDate=release_date.strftime("%Y%m%d"))

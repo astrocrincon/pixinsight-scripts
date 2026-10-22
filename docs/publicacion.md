@@ -45,7 +45,7 @@ Después de comprobar el resultado:
 La dirección que se añadirá a PixInsight será:
 
 ```text
-https://raw.githubusercontent.com/astrocrincon/pixinsight-scripts/main/repository/
+https://raw.githubusercontent.com/crinconlab/pixinsight-scripts/main/repository/
 ```
 
 No añadir todavía esta dirección: primero debe existir una publicación real. GitHub puede servir contenido desde caché; confirmar que el índice descargado es el recién publicado antes de comprobar actualizaciones.
