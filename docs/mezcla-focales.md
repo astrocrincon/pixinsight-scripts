@@ -1,0 +1,84 @@
+# Mezcla de focales — 0.1.0 de desarrollo
+
+Primera implementación para combinar una base de gran campo con el detalle de una focal larga, sobre imágenes **ya estiradas y sin estrellas**. No se aplica STF adicional.
+
+## Instalar para probar
+
+1. Descargar `src/scripts/crinconlab/Mezcla_Focales.js` y guardarlo en una carpeta permanente.
+2. En PixInsight, abrir **Script → Feature Scripts… → Add** y seleccionar esa carpeta.
+3. Ejecutar **Script → Utilities → Mezcla de focales**. También se puede abrir el archivo en el editor de scripts y ejecutarlo desde allí.
+
+El script es autocontenido, aparte de cabeceras y procesos estándar de PixInsight. Está escrito para el motor V8. No requiere ImageSolver ni SPCC. Todavía no está firmado ni publicado mediante el gestor de actualizaciones.
+
+## Preparar las entradas
+
+- **Base**: imagen de gran campo estirada y sin estrellas, RGB o monocroma.
+- **Detalle**: imagen de la focal larga, estirada y sin estrellas, RGB o monocroma.
+- **Máscara**: imagen monocroma con la geometría de cobertura válida del detalle. Blanco incorpora detalle; negro conserva la base. Puede tener transiciones grises.
+
+Las tres imágenes deben tener las mismas dimensiones y estar registradas sobre la misma cuadrícula. Coincidir en dimensiones no demuestra que estén alineadas. No se admiten previews ni canales alfa.
+
+La primera versión **no registra ni remuestrea**. Conviene hacer el registro con imágenes con estrellas, y utilizar esa misma transformación en las versiones sin estrellas. La posición y el recorte de la máscara también deben coincidir.
+
+La cuadrícula de la base determina la escala y dimensiones del resultado. Para conservar el muestreo de la focal larga, hay que preparar previamente la base sobre una cuadrícula que lo conserve. Ampliar el campo amplio no crea detalle fuera del campo de la focal larga y puede aumentar mucho el consumo de memoria.
+
+### Máscara de cobertura
+
+No se deduce la cobertura del brillo del detalle: una nebulosa oscura puede contener píxeles casi negros que siguen siendo válidos. La máscara se aporta por separado.
+
+Una opción conservadora es crear una imagen monocroma del mismo tamaño, negra, y rellenar de blanco un rectángulo interior al campo válido de la focal larga. Si el campo está girado, el rectángulo debe quedar completamente dentro de la región válida, o se debe preparar una máscara con su geometría real. No usar como máscara una copia de la luminancia de la nebulosa.
+
+## Controles y primera prueba
+
+1. Elegir base, detalle y máscara, y confirmar la preparación de las entradas.
+2. Empezar con **sigma menor 1**, **sigma mayor 4** y **transición 32**, todos en píxeles de la cuadrícula de salida. La transición debe adaptarse al tamaño de la zona cubierta y al suavizado previo de la máscara.
+3. Preparar la comparación. Se calcula la banda a resolución completa.
+4. La intensidad inicial es **35 %** y la ganancia relativa **1**. Cambiar los valores y pulsar **Actualizar comparación**. Cada actualización parte de las mismas copias iniciales.
+5. Usar **Campo completo**, **100 %**, los botones de zoom, la rueda y el arrastre para inspeccionar las mismas zonas en ambos paneles.
+6. **Conservar resultado** mantiene la imagen ya calculada; no repite la mezcla y no guarda un archivo. **Volver** permite cambiar entradas o escalas. **Descartar y cerrar** elimina los temporales.
+
+La comparación es una representación de pantalla con bitmap. No es una lectura fotométrica, y no se ha validado aquí la gestión de color de esa representación. Al conservar el resultado, revisarlo también en la ventana nativa de PixInsight con los ajustes de visualización apropiados.
+
+## Método
+
+En RGB se extrae la componente CIE L*; en monocromo se utiliza directamente la imagen. La banda de detalle es la diferencia entre dos gaussianas, con sigmas menor y mayor. **No son las capas de MultiscaleLinearTransform**, y sigma no es un tamaño exacto de estructura.
+
+Los suavizados se normalizan con la máscara de cobertura:
+
+```text
+Suavizado(X, sigma) = Gsigma(X · M) / max(Gsigma(M), 1e-6)
+Banda(X) = Suavizado(X, sigma_menor) − Suavizado(X, sigma_mayor)
+L_resultado = limitar_a_0_1(L_base + intensidad · M_efectiva · (ganancia · Banda(detalle) − Banda(base)))
+```
+
+Normalizar ambos campos con la misma máscara evita introducir directamente los bordes negros de un detalle registrado sobre un lienzo mayor. La máscara efectiva tiene transición adicional hacia dentro y mantiene a cero el exterior de la máscara original. Con transición 0 se utiliza directamente la máscara original limitada a 0–1.
+
+Se reemplaza de forma parcial el detalle de la base en esa banda, en vez de sumarlo por duplicado. Las estructuras mayores quedan en la base antes de los posibles efectos de limitación a 0–1 y de la conversión de color.
+
+El ajuste automático estima una pendiente entre estructuras suavizadas de base y detalle dentro de la cobertura. El término aditivo del ajuste no se incorpora: una diferencia de gaussianas ya elimina un desplazamiento constante. Si la estimación no tiene suficientes muestras, variación o correlación, se utiliza ganancia 1 y se muestra un aviso. La ganancia relativa permite corregirla manualmente; no cambia el color de origen.
+
+Este ajuste **no es una calibración fotométrica**. Estirados y respuestas espectrales distintos pueden requerir desactivarlo y revisar manualmente la mezcla.
+
+En RGB, la nueva componente de luminosidad se incorpora con LRGBCombination, con parámetros de transferencia neutros y reducción de ruido desactivada. El color procede de la base. Los cambios de luminosidad y los colores fuera de gama pueden modificar el aspecto; no se garantiza identidad fotométrica ni de color.
+
+## Comprobaciones y límites
+
+Las imágenes originales no se procesan ni se sobrescriben. Se restauran sus selecciones de canal y rectángulo al copiarlas. Los cálculos usan temporales de 32 bits reales, con trabajo interno de PixelMath en 64 bits. No se copian máscaras activas de los originales ni se aplican sus STF. Los metadatos FITS y la solución astrométrica del resultado proceden de la base.
+
+Un cambio de intensidad o ganancia desactiva la aceptación hasta actualizar. Si falla el cálculo o la representación de una nueva comparación, se mantiene la última comparación válida. Volver y cerrar limpian solo ventanas propiedad del script. Un cierre forzado de PixInsight puede dejar temporales abiertos.
+
+La implementación mantiene varias imágenes a resolución completa; con imágenes de 26 megapíxeles puede utilizar varios GB, además de los originales. El objetivo de la banda seleccionada es aportar detalle existente, pero también puede transferir ruido o artefactos de registro y procesado. No se detectan automáticamente estrellas residuales, diferencias de PSF o de estructura entre filtros.
+
+### Comprobaciones realizadas fuera de PixInsight
+
+```bash
+node --test tests/mezcla_focales.test.cjs
+```
+
+Se comprueban geometría de las entradas, identidad con intensidad cero y con entradas iguales, cobertura, conservación de originales, independencia de ensayos, errores y limpieza de temporales, bloqueo de aceptación desactualizada, estimación de ganancia y geometría de navegación. Los procesos PJSR se representan mediante adaptadores en memoria; estas pruebas no validan los procesos ni la interfaz nativos.
+
+### Pendiente en PixInsight
+
+No hay una instalación de PixInsight en este entorno. Se incluye `tests/Test_Mezcla_Focales_PixInsight.js` para ejecutar una prueba sintética de los procesos nativos. Descargar el repositorio completo y conservar las rutas; ejecutar ese archivo desde el editor de scripts. La prueba crea y elimina únicamente sus propias imágenes sintéticas y temporales.
+
+Después hay que comprobar visualmente el diálogo, el zoom y el desplazamiento, y probar una pareja real de imágenes. Revisar especialmente el borde de cobertura, zonas de polvo tenue, ruido y crominancia antes de considerar una primera versión distribuible.
