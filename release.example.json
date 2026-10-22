@@ -1,0 +1,13 @@
+{
+  "package_id": "mi-script",
+  "version": "0.1.0",
+  "title": "Nombre del script",
+  "description": "Descripción de esta versión.",
+  "pixinsight_versions": null,
+  "files": [
+    "scripts/astrocrincon/MiScript/MiScript.js"
+  ],
+  "entrypoints": [
+    "scripts/astrocrincon/MiScript/MiScript.js"
+  ]
+}

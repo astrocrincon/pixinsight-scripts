@@ -1,0 +1,16 @@
+# Las claves privadas nunca se publican.
+*.xssk
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+
+# Trabajo local y paquetes pendientes de revisión/firma.
+/build/
+/release.json
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Las firmas públicas .xsgn sí pueden versionarse.
