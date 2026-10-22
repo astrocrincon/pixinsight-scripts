@@ -8,7 +8,7 @@ La herramienta Python prepara un paquete con todos los scripts indicados en una 
 
 ## Preparar el primer script
 
-1. Guardar el código bajo `src/scripts/astrocrincon/NombreDelScript/` y añadir sus dependencias e iconos. Las rutas del ZIP conservarán el prefijo `src/`, que corresponde al árbol de instalación de PixInsight.
+1. Guardar el código bajo `src/scripts/crinconlab/NombreDelScript/` y añadir sus dependencias e iconos. Las rutas del ZIP conservarán el prefijo `src/`, que corresponde al árbol de instalación de PixInsight.
 2. Revisar en el código `#feature-id`, versión, categoría del menú y rutas relativas. El identificador de desarrollador CPD es el aprobado por PixInsight; no hay que deducirlo del usuario de GitHub ni de esta carpeta.
 3. Copiar `release.example.json` como `release.json`. Este último es configuración local e inicialmente está ignorado por Git.
 4. Rellenar nombre, descripción, versión y un `package_id` estable. Indicar en `pixinsight_versions` el intervalo **comprobado** de PixInsight con formato `mínimo:máximo`, por ejemplo `1.9.3:1.9.4`. El ejemplo ilustra el formato, no certifica esa compatibilidad.

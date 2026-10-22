@@ -8,7 +8,7 @@ Scripts para PixInsight de crinconlab y preparación de su repositorio de actual
 
 | Ruta | Contenido |
 | --- | --- |
-| `src/scripts/astrocrincon/` | Scripts, firmas públicas y recursos que se instalarán |
+| `src/scripts/crinconlab/` | Scripts, firmas públicas y recursos que se instalarán |
 | `tools/build_release.py` | Preparación local del ZIP y del índice `updates.xri` |
 | `release.example.json` | Plantilla de metadatos para una publicación |
 | `build/` | Resultados locales, pendientes de firma y comprobación; ignorados por Git |

@@ -40,7 +40,7 @@ def collect_files(config, source):
         relative = PurePosixPath(name)
         if (relative.is_absolute() or ".." in relative.parts or "\\" in name
                 or ":" in name or str(relative) != name
-                or not name.startswith("scripts/astrocrincon/")):
+                or not name.startswith("scripts/crinconlab/")):
             raise ValueError("Ruta de instalación no válida: " + name)
         if any(part.startswith(".") for part in relative.parts):
             raise ValueError("No se empaquetan archivos ocultos: " + name)

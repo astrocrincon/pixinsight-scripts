@@ -5,9 +5,9 @@
   "description": "Descripción de esta versión.",
   "pixinsight_versions": null,
   "files": [
-    "scripts/astrocrincon/MiScript/MiScript.js"
+    "scripts/crinconlab/MiScript/MiScript.js"
   ],
   "entrypoints": [
-    "scripts/astrocrincon/MiScript/MiScript.js"
+    "scripts/crinconlab/MiScript/MiScript.js"
   ]
 }

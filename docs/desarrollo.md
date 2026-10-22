@@ -9,7 +9,7 @@ Los dos scripts recibidos el 22 de octubre de 2026 se han incorporado sin modifi
 | `Editor_Cabeceras_FITS_XISF.js` | Sin versión propia explícita en la cabecera | Cabeceras PJSR de tipos, interfaz e iconos proporcionadas por PixInsight |
 | `RGB_DualBand_Solver_SPCC.js` | 0.13 en la información del script | PixInsight 1.9.5 como mínimo según el código, motor V8, bibliotecas PJSR de astrometría, ImageSolver y SPCC |
 
-Los archivos están en [src/scripts/astrocrincon/](../src/scripts/astrocrincon/). Las dependencias de PixInsight no se han copiado al repositorio.
+Los archivos están en [src/scripts/crinconlab/](../src/scripts/crinconlab/). Las dependencias de PixInsight no se han copiado al repositorio.
 
 ## Antes de una primera distribución
 
