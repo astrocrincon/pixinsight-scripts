@@ -36,12 +36,24 @@ function MF_nativeTests()
       var base=make("BaseRGB",3),detail=make("Detalle",1),mask=make("Mascara",1);
       fill(base,[0.2,0.3,0.4]);
       formula(detail,"0.35+0.03*sin(x()*0.8)+0.02*cos(y()*0.7)");
-      formula(mask,"iif(x()>10 && x()<54 && y()>10 && y()<54,1,0)");
+      var coverageRect={x0:11,y0:11,x1:54,y1:54};
+      var generated=MF_createCoverage(detail.mainView,coverageRect);
+      fixtures.own(generated);
+      check(generated.mainView.image.numberOfChannels===1,"cobertura creada monocroma");
+      check(generated.mainView.image.width===64 && generated.mainView.image.height===64,"dimensiones de cobertura creada");
+      check(generated.mainView.image.sample(11,11,0)===1 && generated.mainView.image.sample(53,53,0)===1,"interior y límites incluidos");
+      check(generated.mainView.image.sample(10,11,0)===0 && generated.mainView.image.sample(54,53,0)===0,"exterior y límite excluido");
+      mask.forceClose(); fixtures.release(mask); mask=generated;
+      var previewBitmap=MF_renderCoverage(detail.mainView,coverageRect,2);
+      check(previewBitmap.width===64 && previewBitmap.height===64,"previsualización de máscara a resolución completa");
       base.mainView.image.selectedChannel=2;
       base.mainView.image.selectedRect=new Rect(5,7,24,26);
       var config={base:base.mainView,detail:detail.mainView,mask:mask.mainView,
          fine:1,coarse:4,feather:2,autoGain:false,id:MF_unique("Test_Salida"),prepared:true};
       state=MF_prepare(config);
+      check(state.mask.mainView.image.sample(10,32,0)===0,"transición sin invadir el exterior");
+      check(state.mask.mainView.image.sample(11,32,0)>0 && state.mask.mainView.image.sample(11,32,0)<1,"transición hacia dentro");
+      check(mask.mainView.image.sample(11,32,0)===1,"soporte conservado sin doble suavizado");
       check(base.mainView.image.selectedChannel===2,"restaurar canal seleccionado");
       var rect=base.mainView.image.selectedRect;
       check(rect.x0===5 && rect.y0===7 && rect.x1===24 && rect.y1===26,"restaurar selección rectangular");
@@ -81,3 +93,4 @@ function MF_nativeTests()
 }
 try { MF_nativeTests(); }
 catch (e) { console.criticalln(String(e)); new MessageBox(String(e),"Prueba nativa de mezcla",StdIcon_Error,StdButton_Ok).execute(); }
+

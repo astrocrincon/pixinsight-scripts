@@ -15,6 +15,7 @@ class FakeImage {
   resetSelections() { this.selection={channel:'all',rect:'full'}; }
   popSelections() { this.selection=this.stack.pop(); }
   assign(source) { if(failure==='assign') throw Error('injected assign failure'); this.data.set(source.data); }
+  render() { if(failure==='render') throw Error('injected render failure'); return {width:this.width,height:this.height,data:this.data.slice()}; }
 }
 class FakeWindow {
   constructor(w,h,c,bits,floating,color,id) {
@@ -36,11 +37,11 @@ class FakePixelMath {
     if(failure==='pixelmath') throw Error('injected PixelMath failure');
     const out=new FakeWindow(this.newImageWidth,this.newImageHeight,this.newImageColorSpace===1?3:1,32,true,this.newImageColorSpace===1,this.newImageId);
     const windows=[...registry.entries()].filter(([name])=>this.expression.includes(name));
-    const fn=new Function(...windows.map(([name])=>name),'min','max','iif','return '+this.expression);
+    const fn=new Function(...windows.map(([name])=>name),'min','max','iif','x','y','return '+this.expression);
     const image=out.mainView.image;
     for(let y=0;y<image.height;y++) for(let x=0;x<image.width;x++) for(let c=0;c<image.numberOfChannels;c++) {
       const values=windows.map(([,win])=>win.mainView.image.sample(x,y,win.mainView.image.isColor?c:0));
-      image.set(x,y,c,fn(...values,Math.min,Math.max,(condition,a,b)=>condition?a:b));
+      image.set(x,y,c,fn(...values,Math.min,Math.max,(condition,a,b)=>condition?a:b,()=>x,()=>y));
     }
     return true;
   }
@@ -153,3 +154,54 @@ test('zoom preserves the image coordinate beneath the pointer, and pan remains w
   c.pan(100000,-100000,600,400);
   assert.ok(c.x>=600/(2*c.scale));assert.ok(c.y<=4000-400/(2*c.scale));
 });
+
+test('rectangle selection supports reverse drags, pixel bounds and rejects empty coverage',()=>{
+  const r=ctx.MF_rectangle(40.7,23.2,-4,-9,32,32);
+  assert.deepEqual({...r},{x0:0,y0:0,x1:32,y1:24});
+  assert.throws(()=>ctx.MF_rectangle(5.2,4,5.2,20,32,32),/anchura/);
+  assert.throws(()=>ctx.MF_rectangle(40,4,50,20,32,32),/anchura/);
+  assert.throws(()=>ctx.MF_rectangle(NaN,4,20,20,32,32),/finitos/);
+});
+test('mask drawing maps a letterboxed preview to exact image coordinates and clamps margins',()=>{
+  const p=ctx.MF_maskPoint(300,100,600,400,6000,2000);
+  almost(p.x,3000);almost(p.y,0);
+  const q=ctx.MF_maskPoint(-30,500,600,400,6000,2000);
+  almost(q.x,0);almost(q.y,2000);
+});
+test('a created coverage is monochrome geometry even when the entire detail is black',()=>{
+  const c=fixture();c.detail.image.data.fill(0);
+  const before=c.detail.image.data.slice(), selection={...c.detail.image.selection};
+  const mask=ctx.MF_createCoverage(c.detail,{x0:5,y0:5,x1:27,y1:27});
+  assert.equal(mask.mainView.image.numberOfChannels,1);assert.equal(mask.shown,true);
+  for(let y=0;y<32;y++)for(let x=0;x<32;x++)
+    assert.equal(mask.mainView.image.sample(x,y,0),x>=5&&x<27&&y>=5&&y<27?1:0);
+  assert.deepEqual(c.detail.image.data,before);assert.deepEqual(c.detail.image.selection,selection);
+  assert.equal(registry.size,4);mask.forceClose();
+});
+test('mask preview matches the effective blend mask without baking a second transition into the support',()=>{
+  const c=fixture(),rect={x0:5,y0:5,x1:27,y1:27};
+  const mask=ctx.MF_createCoverage(c.detail,rect);
+  const bitmap=ctx.MF_renderCoverage(c.detail,rect,2);
+  assert.equal(registry.size,4);
+  const state=ctx.MF_prepare({...c,mask:mask.mainView});
+  bitmap.data.forEach((v,i)=>almost(v,state.mask.mainView.image.data[i]));
+  assert.ok(bitmap.data[5*32+16]>0 && bitmap.data[5*32+16]<1);
+  assert.equal(bitmap.data[4*32+16],0);
+  assert.equal(mask.mainView.image.sample(16,5,0),1);
+  state.work.dispose();
+  const hard=ctx.MF_renderCoverage(c.detail,rect,0);
+  assert.deepEqual(hard.data,mask.mainView.image.data);
+  assert.equal(registry.size,4);
+});
+test('mask preview and creation failures remove only their own windows',()=>{
+  const c=fixture(),rect={x0:5,y0:5,x1:27,y1:27};
+  for(const error of ['render','assign','pixelmath']) {
+    failure=error;
+    assert.throws(()=>ctx.MF_renderCoverage(c.detail,rect,2),/injected/);
+    assert.equal(registry.size,3);
+  }
+  failure='show';
+  assert.throws(()=>ctx.MF_createCoverage(c.detail,rect),/show failure/);
+  assert.equal(registry.size,3);
+});
+

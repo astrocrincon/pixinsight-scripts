@@ -1,4 +1,4 @@
-# Mezcla de focales — 0.1.0 de desarrollo
+# Mezcla de focales — 0.2.0 de desarrollo
 
 Primera implementación para combinar una base de gran campo con el detalle de una focal larga, sobre imágenes **ya estiradas y sin estrellas**. No se aplica STF adicional.
 
@@ -24,13 +24,22 @@ La cuadrícula de la base determina la escala y dimensiones del resultado. Para 
 
 ### Máscara de cobertura
 
-No se deduce la cobertura del brillo del detalle: una nebulosa oscura puede contener píxeles casi negros que siguen siendo válidos. La máscara se aporta por separado.
+No se deduce la cobertura del brillo del detalle: una nebulosa oscura puede contener píxeles casi negros que siguen siendo válidos. Se puede crear la máscara dentro del script o seleccionar una imagen monocroma preparada externamente.
 
-Una opción conservadora es crear una imagen monocroma del mismo tamaño, negra, y rellenar de blanco un rectángulo interior al campo válido de la focal larga. Si el campo está girado, el rectángulo debe quedar completamente dentro de la región válida, o se debe preparar una máscara con su geometría real. No usar como máscara una copia de la luminancia de la nebulosa.
+1. Seleccionar la imagen de **Detalle** ya registrada sobre la cuadrícula de salida y pulsar **Crear máscara…**.
+2. Arrastrar sobre el panel de detalle para dibujar un rectángulo completamente dentro del campo válido. El rectángulo inicial ocupa todo el lienzo; hay que ajustarlo si contiene bordes sin datos. Las coordenadas permiten afinar la selección en píxeles; `x1` e `y1` son límites excluidos. El dibujo admite arrastre en cualquier dirección.
+3. Elegir la **Transición (px)** y pulsar **Previsualizar transición**. El panel derecho muestra la máscara efectiva, calculada a resolución completa con el mismo método que la mezcla. Blanco incorpora detalle; gris mezcla parcialmente; negro conserva la base. Si se cambian coordenadas o transición, se borra la vista anterior hasta recalcularla.
+4. Pulsar **Crear y seleccionar máscara**. Se abre una nueva imagen monocroma, sin sobrescribir ninguna existente, y queda seleccionada en el diálogo principal. La transición elegida también pasa al diálogo principal.
+
+La imagen creada conserva un **rectángulo blanco de bordes duros sobre negro**. La transición se aplica una sola vez al preparar la mezcla, hacia dentro de ese soporte. Por eso la imagen conservada y la vista de la máscara efectiva tienen distinto aspecto cuando la transición es mayor que cero. La máscara creada permanece abierta aunque después se cancele la mezcla; se puede guardar o reutilizar. Cancelar el editor no crea una máscara y las previsualizaciones no dejan ventanas temporales abiertas.
+
+El editor muestra el detalle estirado sin STF y ajustado al panel; para precisar el borde se usan las coordenadas. El cálculo a resolución completa puede tardar y bloquear temporalmente el diálogo en imágenes grandes. No modifica los píxeles ni las selecciones del detalle original.
+
+Esta versión dibuja rectángulos alineados con los ejes. Si el campo está girado, el rectángulo debe quedar completamente dentro de la región válida, o se debe preparar externamente una máscara con su geometría real para aprovechar todo el campo. No usar como máscara una copia de la luminancia de la nebulosa.
 
 ## Controles y primera prueba
 
-1. Elegir base, detalle y máscara, y confirmar la preparación de las entradas.
+1. Elegir base y detalle, crear o seleccionar la máscara y confirmar la preparación de las entradas.
 2. Empezar con **sigma menor 1**, **sigma mayor 4** y **transición 32**, todos en píxeles de la cuadrícula de salida. La transición debe adaptarse al tamaño de la zona cubierta y al suavizado previo de la máscara.
 3. Preparar la comparación. Se calcula la banda a resolución completa.
 4. La intensidad inicial es **35 %** y la ganancia relativa **1**. Cambiar los valores y pulsar **Actualizar comparación**. Cada actualización parte de las mismas copias iniciales.
@@ -75,10 +84,11 @@ La implementación mantiene varias imágenes a resolución completa; con imágen
 node --test tests/mezcla_focales.test.cjs
 ```
 
-Se comprueban geometría de las entradas, identidad con intensidad cero y con entradas iguales, cobertura, conservación de originales, independencia de ensayos, errores y limpieza de temporales, bloqueo de aceptación desactualizada, estimación de ganancia y geometría de navegación. Los procesos PJSR se representan mediante adaptadores en memoria; estas pruebas no validan los procesos ni la interfaz nativos.
+Hay 14 pruebas. Se comprueban geometría de las entradas, identidad con intensidad cero y con entradas iguales, cobertura, conservación de originales, independencia de ensayos, errores y limpieza de temporales, bloqueo de aceptación desactualizada, estimación de ganancia y geometría de navegación. También se comprueban el dibujo sobre un panel con márgenes, arrastres inversos, límites del rectángulo, creación de cobertura independiente del brillo, coincidencia entre la máscara previsualizada y la de la mezcla, ausencia de doble suavizado y limpieza tras fallos de creación o representación. Los procesos PJSR se representan mediante adaptadores en memoria; estas pruebas no validan los procesos ni la interfaz nativos.
 
 ### Pendiente en PixInsight
 
 No hay una instalación de PixInsight en este entorno. Se incluye `tests/Test_Mezcla_Focales_PixInsight.js` para ejecutar una prueba sintética de los procesos nativos. Descargar el repositorio completo y conservar las rutas; ejecutar ese archivo desde el editor de scripts. La prueba crea y elimina únicamente sus propias imágenes sintéticas y temporales.
 
-Después hay que comprobar visualmente el diálogo, el zoom y el desplazamiento, y probar una pareja real de imágenes. Revisar especialmente el borde de cobertura, zonas de polvo tenue, ruido y crominancia antes de considerar una primera versión distribuible.
+Después hay que comprobar visualmente el editor de máscara (arrastre, coordenadas, transición, cancelar y selección de la nueva imagen), el diálogo de mezcla, el zoom y el desplazamiento, y probar una pareja real de imágenes. Revisar especialmente el borde de cobertura, zonas de polvo tenue, ruido y crominancia antes de considerar una primera versión distribuible.
+

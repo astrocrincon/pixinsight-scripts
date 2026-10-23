@@ -8,7 +8,7 @@ Los dos scripts recibidos el 22 de octubre de 2026 se han incorporado sin modifi
 | --- | --- | --- |
 | `Editor_Cabeceras_FITS_XISF.js` | Sin versión propia explícita en la cabecera | Cabeceras PJSR de tipos, interfaz e iconos proporcionadas por PixInsight |
 | `RGB_DualBand_Solver_SPCC.js` | 0.13 en la información del script | PixInsight 1.9.5 como mínimo según el código, motor V8, bibliotecas PJSR de astrometría, ImageSolver y SPCC |
-| `Mezcla_Focales.js` | 0.1.0, desarrollo | Motor V8; procesos estándar ChannelExtraction, Convolution, PixelMath y LRGBCombination. Prueba nativa pendiente. |
+| `Mezcla_Focales.js` | 0.2.0, desarrollo | Motor V8; procesos estándar ChannelExtraction, Convolution, PixelMath y LRGBCombination. Editor rectangular de cobertura con previsualización. Prueba nativa pendiente. |
 
 Los archivos están en [src/scripts/crinconlab/](../src/scripts/crinconlab/). Las dependencias de PixInsight no se han copiado al repositorio.
 
@@ -37,4 +37,5 @@ La carpeta `repository/` continúa sin `updates.xri` ni paquetes instalables. Gu
 
 ## Nuevo desarrollo: mezcla de focales
 
-Se ha añadido una primera implementación para imágenes estiradas y sin estrellas, ya registradas, con máscara de cobertura. Se conservan sin cambios los dos scripts recibidos inicialmente. Hay nueve pruebas automáticas fuera de PixInsight con adaptadores en memoria, una guía del método y una prueba sintética para ejecutar en PixInsight. Los procesos nativos, la interfaz y una mezcla con datos astronómicos reales aún deben comprobarse. Véase [Mezcla de focales](mezcla-focales.md).
+Se ha añadido una implementación para imágenes estiradas y sin estrellas, ya registradas, con máscara de cobertura. La versión 0.2.0 permite dibujar una cobertura rectangular sobre el detalle, previsualizar su transición a resolución completa y crear y seleccionar la máscara sin suavizarla dos veces. Se conservan sin cambios los dos scripts recibidos inicialmente. Hay 14 pruebas automáticas fuera de PixInsight con adaptadores en memoria, una guía del método y una prueba sintética para ejecutar en PixInsight. Los procesos nativos, la interfaz y una mezcla con datos astronómicos reales aún deben comprobarse. Véase [Mezcla de focales](mezcla-focales.md).
+

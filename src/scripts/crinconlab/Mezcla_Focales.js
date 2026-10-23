@@ -1,6 +1,6 @@
 // Copyright © Carlos Rincón 2026
 #feature-id crinconlab.MezclaFocales : Utilities > Mezcla de focales
-#feature-info Mezcla selectiva de detalle entre focales. Imágenes estiradas, sin estrellas y registradas. Versión de desarrollo 0.1.0.
+#feature-info Mezcla selectiva de detalle entre focales. Imágenes estiradas, sin estrellas y registradas. Versión de desarrollo 0.2.0.
 #engine v8
 #include <pjsr/Sizer.jsh>
 #include <pjsr/StdIcon.jsh>
@@ -13,7 +13,7 @@
  * Las bandas se obtienen por diferencia de gaussianas normalizadas con máscara;
  * no son las capas de MultiscaleLinearTransform.
  */
-var MF_VERSION = "0.1.0";
+var MF_VERSION = "0.2.0";
 
 function MF_clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
 function MF_number(value, name, low, high)
@@ -193,6 +193,72 @@ function MF_normalizedBlur(weighted, maskBlur, sigma, work, tag)
    return out;
 }
 
+// Rectángulos en coordenadas de imagen, con límite derecho/inferior exclusivo.
+function MF_rectangle(x0,y0,x1,y1,width,height)
+{
+   var values=[x0,y0,x1,y1];
+   if (!values.every(function(x) { return typeof x==="number" && isFinite(x); }))
+      throw new Error("Las coordenadas de cobertura deben ser números finitos.");
+   if (MF_clamp(Math.min(x0,x1),0,width)>=MF_clamp(Math.max(x0,x1),0,width) ||
+       MF_clamp(Math.min(y0,y1),0,height)>=MF_clamp(Math.max(y0,y1),0,height))
+      throw new Error("Dibuja una zona con anchura y altura mayores que cero.");
+   var rect={x0:MF_clamp(Math.floor(Math.min(x0,x1)),0,width),
+      y0:MF_clamp(Math.floor(Math.min(y0,y1)),0,height),
+      x1:MF_clamp(Math.ceil(Math.max(x0,x1)),0,width),
+      y1:MF_clamp(Math.ceil(Math.max(y0,y1)),0,height)};
+   if (rect.x1<=rect.x0 || rect.y1<=rect.y0)
+      throw new Error("Dibuja una zona con anchura y altura mayores que cero.");
+   return rect;
+}
+function MF_maskPoint(x,y,viewWidth,viewHeight,width,height)
+{
+   var scale=Math.min(viewWidth/width,viewHeight/height);
+   return {x:MF_clamp((x-(viewWidth-width*scale)/2)/scale,0,width),
+      y:MF_clamp((y-(viewHeight-height*scale)/2)/scale,0,height)};
+}
+function MF_rectangleMask(reference,rect,work)
+{
+   MF_assertView(reference,"Detalle de focal larga");
+   var r=MF_rectangle(rect.x0,rect.y0,rect.x1,rect.y1,reference.image.width,reference.image.height);
+   return MF_math("iif(x()>="+r.x0+" && x()<"+r.x1+" && y()>="+r.y0+" && y()<"+r.y1+",1,0)",
+      reference,work,"CoberturaRectangular",false);
+}
+// Mismo cálculo para la previsualización de máscara y para la mezcla final.
+// El soporte permanece duro: la transición se aplica una sola vez, hacia dentro.
+function MF_effectiveMask(support,sigma,work)
+{
+   sigma=MF_number(sigma,"Transición de cobertura",0,256);
+   if (sigma===0) return support;
+   var blurred=MF_blur(support,sigma,work,"Transicion");
+   var effective=MF_math(support.mainView.id+"*min(1,max(0,("+blurred.mainView.id+"-0.5)*2))",
+      support.mainView,work,"MascaraFinal",false);
+   work.close(blurred);
+   return effective;
+}
+function MF_renderCoverage(reference,rect,sigma)
+{
+   var work=new MF_Work;
+   try
+   {
+      var support=MF_rectangleMask(reference,rect,work);
+      return MF_effectiveMask(support,sigma,work).mainView.image.render();
+   }
+   finally { work.dispose(); }
+}
+function MF_createCoverage(reference,rect)
+{
+   var work=new MF_Work;
+   try
+   {
+      var mask=MF_rectangleMask(reference,rect,work);
+      MF_copyMetadata(reference.window,mask);
+      mask.show();
+      work.release(mask);
+      return mask;
+   }
+   finally { work.dispose(); }
+}
+
 // Ajuste de contraste sobre estructuras grandes, no una calibración fotométrica.
 function MF_fitGain(pairs)
 {
@@ -255,10 +321,7 @@ function MF_prepare(config, progress)
       var lbase=MF_lightness(base,work,"BaseL"), ldetail=MF_lightness(detail,work,"DetalleL");
       // El usuario aporta la geometría: no se interpreta un píxel negro como falta de cobertura.
       var support=MF_math("min(1,max(0,"+mask.mainView.id+"))",mask.mainView,work,"Cobertura",false);
-      var feather=MF_blur(support,config.feather,work,"Transicion");
-      var effective=config.feather===0 ? support :
-         MF_math(support.mainView.id+"*min(1,max(0,("+feather.mainView.id+"-0.5)*2))",
-            support.mainView,work,"MascaraFinal",false);
+      var effective=MF_effectiveMask(support,config.feather,work);
       step("Calculando las escalas de detalle y su transición…");
       var maskFine=MF_blur(support,config.fine,work,"MaskFina");
       var maskCoarse=MF_blur(support,config.coarse,work,"MaskGruesa");
@@ -374,7 +437,7 @@ var MF_HELP = "MEZCLA DE FOCALES · "+MF_VERSION+" (desarrollo)\n\n"+
    "Entradas: base de gran campo, detalle de focal larga y máscara monocroma de cobertura.\n"+
    "Las tres deben estar registradas y tener las mismas dimensiones. Las imágenes deben estar estiradas y sin estrellas.\n\n"+
    "La base determina dimensiones y escala de salida. Para conservar el muestreo de la focal larga, prepara previamente una cuadrícula que lo conserve. Ampliar la base no crea detalle fuera del campo de la focal larga.\n\n"+
-   "La máscara debe ser blanca solo donde existe detalle válido y negra fuera; no uses la luminancia de la nebulosa como sustituto de la cobertura. Puedes dibujar un rectángulo interior al campo válido y suavizarlo. Los bordes negros de la imagen de detalle no se detectan automáticamente.\n\n"+
+   "La máscara debe ser blanca solo donde existe detalle válido y negra fuera; no uses la luminancia de la nebulosa como sustituto de la cobertura. Crear máscara permite dibujar un rectángulo sobre el detalle y previsualizar la transición a resolución completa. La máscara conservada tiene bordes duros: la transición elegida se aplica una sola vez al preparar la mezcla. Para un campo girado, dibuja un rectángulo interior o aporta una máscara externa con su geometría real. No hay detección automática de bordes negros.\n\n"+
    "Sigma menor y mayor seleccionan una banda por diferencia de gaussianas. Son desviaciones estándar, en píxeles de salida, no tamaños exactos de estructuras ni capas MLT. Menor=0 incluye los píxeles más finos y puede incorporar más ruido. Empieza con 1 y 4.\n\n"+
    "La transición suaviza la cobertura sin extenderla fuera de la máscara. El ajuste automático compara el contraste de estructuras grandes dentro de la máscara; si no es fiable usa ganancia 1 y muestra un aviso. No es una calibración fotométrica y puede ser inadecuado para filtros o estirados muy distintos.\n\n"+
    "La intensidad interpola entre el detalle base y el detalle de focal larga en la banda elegida; no suma sin más dos versiones del mismo detalle. La ganancia relativa corrige la amplitud del detalle. Las estructuras grandes de la base se mantienen en la componente de trabajo.\n\n"+
@@ -395,6 +458,162 @@ function MF_help()
    var row=new HorizontalSizer; row.addStretch(); row.add(close);
    dialog.sizer=new VerticalSizer; dialog.sizer.margin=10; dialog.sizer.spacing=8;
    dialog.sizer.add(text,100); dialog.sizer.add(row); dialog.adjustToContents(); dialog.execute();
+}
+
+class MF_MaskDialog extends Dialog
+{
+constructor(reference,feather)
+{
+   super();
+   MF_assertView(reference,"Detalle de focal larga");
+   var self=this, image=reference.image;
+   this.reference=reference; this.result=null; this.maskBitmap=null; this.syncing=false; this.busy=false;
+   this.imageWidth=image.width; this.imageHeight=image.height;
+   this.windowTitle="Crear máscara de cobertura · "+reference.id;
+   image.pushSelections();
+   try { image.resetSelections(); this.detailBitmap=image.render(); }
+   finally { image.popSelections(); }
+   this.fields=[];
+   var coordinates=new HorizontalSizer; coordinates.spacing=6;
+   ["x0","y0","x1","y1"].forEach(function(name,i)
+   {
+      var edit=new SpinBox(self); edit.minValue=0;
+      edit.maxValue=i%2?image.height:image.width;
+      edit.value=i<2?0:edit.maxValue;
+      edit.setScaledMinWidth(85);
+      edit.onValueUpdated=function() { if (!self.syncing) self.invalidate(); };
+      self.fields.push(edit); coordinates.add(MF_label(self,name+":")); coordinates.add(edit);
+   });
+   coordinates.addStretch();
+   this.feather=new SpinBox(this); this.feather.minValue=0; this.feather.maxValue=256; this.feather.value=feather;
+   this.feather.onValueUpdated=function() { self.invalidate(); };
+   coordinates.add(MF_label(this,"Transición (px):")); coordinates.add(this.feather);
+   this.detailPane=this.makePane(false); this.maskPane=this.makePane(true);
+   var left=new VerticalSizer; left.spacing=4;
+   left.add(MF_label(this,"Detalle · arrastra para delimitar la cobertura")); left.add(this.detailPane,100);
+   var right=new VerticalSizer; right.spacing=4;
+   right.add(MF_label(this,"Máscara efectiva · blanco incorpora detalle")); right.add(this.maskPane,100);
+   var columns=new HorizontalSizer; columns.spacing=8; columns.add(left,100); columns.add(right,100);
+   this.status=MF_label(this,"El rectángulo inicial cubre todo el lienzo. Ajústalo al campo válido y pulsa Previsualizar transición.");
+   this.preview=new PushButton(this); this.preview.text="Previsualizar transición";
+   this.preview.onClick=function() { self.calculate(); };
+   this.create=new PushButton(this); this.create.text="Crear y seleccionar máscara";
+   this.create.onClick=function()
+   {
+      try
+      {
+         self.result=MF_createCoverage(self.reference,self.rectangle());
+         self.ok();
+      }
+      catch (e) { self.status.text="Error: "+String(e); }
+   };
+   var cancel=new PushButton(this); cancel.text="Cancelar"; cancel.onClick=function() { self.cancel(); };
+   var buttons=new HorizontalSizer; buttons.spacing=8;
+   buttons.add(this.preview); buttons.addStretch(); buttons.add(this.create); buttons.add(cancel);
+   this.sizer=new VerticalSizer; this.sizer.margin=12; this.sizer.spacing=8;
+   this.sizer.add(MF_label(this,"Dibuja un rectángulo completamente dentro de la cobertura válida de la focal larga. El brillo de la imagen no determina la máscara. Si el campo está girado, deja fuera las esquinas sin datos."));
+   this.sizer.add(columns,100); this.sizer.add(coordinates);
+   this.sizer.add(MF_label(this,"Coordenadas en píxeles; x1 e y1 son límites excluidos. La vista de la máscara usa el mismo cálculo a resolución completa que la mezcla. Se conservará una máscara de bordes duros y la transición elegida pasará al diálogo principal."));
+   this.sizer.add(this.status); this.sizer.add(buttons);
+   this.setScaledMinSize(940,590); this.adjustToContents();
+}
+rectangle()
+{
+   return MF_rectangle(this.fields[0].value,this.fields[1].value,this.fields[2].value,this.fields[3].value,
+      this.imageWidth,this.imageHeight);
+}
+invalidate()
+{
+   this.maskBitmap=null;
+   if (this.status) this.status.text="Cobertura o transición modificada. Pulsa Previsualizar transición para ver la máscara efectiva.";
+   if (this.detailPane) this.detailPane.update();
+   if (this.maskPane) this.maskPane.update();
+}
+setRectangle(rect)
+{
+   this.syncing=true;
+   try
+   {
+      var values=[rect.x0,rect.y0,rect.x1,rect.y1];
+      this.fields.forEach(function(field,i) { field.value=values[i]; });
+   }
+   finally { this.syncing=false; }
+   this.invalidate();
+}
+calculate()
+{
+   if (this.busy) return;
+   this.busy=true; this.preview.enabled=false; this.create.enabled=false;
+   this.fields.forEach(function(field) { field.enabled=false; }); this.feather.enabled=false;
+   this.status.text="Calculando la transición a resolución completa…";
+   try
+   {
+      // No se procesan eventos mientras hay temporales: el diálogo no puede
+      // cerrarse a mitad de cálculo. No se conserva ninguna ventana de prueba.
+      this.maskBitmap=MF_renderCoverage(this.reference,this.rectangle(),this.feather.value);
+      this.status.text="Transición calculada · sigma "+this.feather.value+" px. Negro conserva la base; gris mezcla parcialmente.";
+   }
+   catch (e) { this.maskBitmap=null; this.status.text="Error: "+String(e); }
+   finally
+   {
+      this.busy=false; this.preview.enabled=true; this.create.enabled=true;
+      this.fields.forEach(function(field) { field.enabled=true; }); this.feather.enabled=true;
+      this.maskPane.update();
+   }
+}
+makePane(isMask)
+{
+   var self=this, pane=new Control(this); pane.setScaledMinSize(350,300); pane.drag=null;
+   pane.onPaint=function()
+   {
+      var bitmap=isMask?self.maskBitmap:self.detailBitmap, g=new Graphics(this);
+      try
+      {
+         g.fillRect(0,0,this.width,this.height,new Brush(0xff202020));
+         if (!bitmap) return;
+         var s=Math.min(this.width/self.imageWidth,this.height/self.imageHeight);
+         var ox=(this.width-self.imageWidth*s)/2,oy=(this.height-self.imageHeight*s)/2;
+         g.smoothInterpolation=s<1;
+         g.drawScaledBitmapRect(ox,oy,ox+self.imageWidth*s,oy+self.imageHeight*s,bitmap,0,0,bitmap.width,bitmap.height);
+         if (!isMask)
+         {
+            var r;
+            try { r=self.rectangle(); } catch (e) { return; }
+            g.pen=new Pen(0xffffff00,2);
+            g.drawRect(ox+r.x0*s,oy+r.y0*s,ox+r.x1*s,oy+r.y1*s);
+         }
+      }
+      finally { g.end(); }
+   };
+   function point(x,y)
+   {
+      return MF_maskPoint(x,y,pane.width,pane.height,self.imageWidth,self.imageHeight);
+   }
+   function dragTo(x,y)
+   {
+      var p=point(x,y);
+      try { self.setRectangle(MF_rectangle(pane.drag.x,pane.drag.y,p.x,p.y,self.imageWidth,self.imageHeight)); }
+      catch (e) { /* Un clic sin superficie no sustituye la selección anterior. */ }
+   }
+   if (!isMask)
+   {
+      pane.onMousePress=function(x,y,button)
+      {
+         if (!self.busy && button===MouseButton.Left) this.drag=point(x,y);
+      };
+      pane.onMouseMove=function(x,y,buttons)
+      {
+         if (!this.drag || self.busy) return;
+         if (!(buttons & MouseButton.Left)) { this.drag=null; return; }
+         dragTo(x,y);
+      };
+      pane.onMouseRelease=function(x,y,button)
+      {
+         if (button===MouseButton.Left && this.drag) { dragTo(x,y); this.drag=null; }
+      };
+   }
+   return pane;
+}
 }
 
 class MF_SetupDialog extends Dialog
@@ -456,6 +675,22 @@ constructor()
    this.prepared.text="Confirmo: imágenes estiradas, sin estrellas y registradas; máscara limitada a cobertura válida";
    this.prepared.toolTip="Se comprueban dimensiones y canales, pero no el registro real ni la eliminación de estrellas ni el estado lineal.";
    this.lists.forEach(function(list) { list.onViewSelected=function() { self.prepared.checked=false; }; });
+   var createMask=new PushButton(this); createMask.text="Crear máscara…";
+   createMask.onClick=function()
+   {
+      try
+      {
+         var editor=new MF_MaskDialog(self.detail.currentView,self.feather.value);
+         if (editor.execute())
+         {
+            refreshViews(); self.mask.currentView=editor.result.mainView;
+            self.feather.value=editor.feather.value; self.prepared.checked=false;
+         }
+      }
+      catch (e) { new MessageBox(String(e),"Crear máscara",StdIcon_Error,StdButton_Ok).execute(); }
+   };
+   var maskTools=new HorizontalSizer; maskTools.spacing=8;
+   maskTools.add(createMask); maskTools.add(MF_label(this,"Rectángulo sobre el detalle, con vista de la transición."),100);
    var help=new PushButton(this); help.text="Ayuda"; help.onClick=MF_help;
    var refresh=new PushButton(this); refresh.text="Actualizar listas"; refresh.onClick=refreshViews;
    var run=new PushButton(this); run.text="Preparar comparación";
@@ -478,6 +713,7 @@ constructor()
    this.sizer.add(imageRow("Base:",this.base));
    this.sizer.add(imageRow("Detalle:",this.detail));
    this.sizer.add(imageRow("Máscara:",this.mask));
+   this.sizer.add(maskTools);
    this.sizer.add(MF_label(this,"Las tres imágenes deben compartir dimensiones, orientación y posición. La base fija la resolución de salida. Blanco en la máscara = detalle válido; negro = conservar la base."));
    this.sizer.add(scales); this.sizer.add(this.autoGain); this.sizer.add(nameRow);
    this.sizer.add(this.prepared); this.sizer.add(buttons);
@@ -684,3 +920,4 @@ function MF_main()
 try { MF_main(); }
 catch (e) { new MessageBox(String(e),"Mezcla de focales",StdIcon_Error,StdButton_Ok).execute(); }
 #endif
+
