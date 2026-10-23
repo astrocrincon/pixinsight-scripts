@@ -1,6 +1,6 @@
 // Copyright © Carlos Rincón 2026
 #feature-id crinconlab.MezclaFocales : Utilities > Mezcla de focales
-#feature-info Mezcla selectiva de detalle entre focales. Imágenes estiradas, sin estrellas y registradas. Versión de desarrollo 0.2.0.
+#feature-info Mezcla selectiva de detalle entre focales. Imágenes estiradas, sin estrellas y registradas. Versión de desarrollo 0.3.0.
 #engine v8
 #include <pjsr/Sizer.jsh>
 #include <pjsr/StdIcon.jsh>
@@ -13,7 +13,7 @@
  * Las bandas se obtienen por diferencia de gaussianas normalizadas con máscara;
  * no son las capas de MultiscaleLinearTransform.
  */
-var MF_VERSION = "0.2.0";
+var MF_VERSION = "0.3.0";
 
 function MF_clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
 function MF_number(value, name, low, high)
@@ -193,35 +193,101 @@ function MF_normalizedBlur(weighted, maskBlur, sigma, work, tag)
    return out;
 }
 
-// Rectángulos en coordenadas de imagen, con límite derecho/inferior exclusivo.
-function MF_rectangle(x0,y0,x1,y1,width,height)
+// Vértices sobre los límites de píxel (0..ancho, 0..alto). Un único
+// contorno simple, convexo o cóncavo, sin huecos ni cruces de aristas.
+function MF_polygon(vertices,width,height)
 {
-   var values=[x0,y0,x1,y1];
-   if (!values.every(function(x) { return typeof x==="number" && isFinite(x); }))
-      throw new Error("Las coordenadas de cobertura deben ser números finitos.");
-   if (MF_clamp(Math.min(x0,x1),0,width)>=MF_clamp(Math.max(x0,x1),0,width) ||
-       MF_clamp(Math.min(y0,y1),0,height)>=MF_clamp(Math.max(y0,y1),0,height))
-      throw new Error("Dibuja una zona con anchura y altura mayores que cero.");
-   var rect={x0:MF_clamp(Math.floor(Math.min(x0,x1)),0,width),
-      y0:MF_clamp(Math.floor(Math.min(y0,y1)),0,height),
-      x1:MF_clamp(Math.ceil(Math.max(x0,x1)),0,width),
-      y1:MF_clamp(Math.ceil(Math.max(y0,y1)),0,height)};
-   if (rect.x1<=rect.x0 || rect.y1<=rect.y0)
-      throw new Error("Dibuja una zona con anchura y altura mayores que cero.");
-   return rect;
+   if (!Array.isArray(vertices) || vertices.length<3 || vertices.length>64)
+      throw new Error("La cobertura necesita entre 3 y 64 vértices.");
+   var points=vertices.map(function(p)
+   {
+      if (!p || typeof p.x!=="number" || typeof p.y!=="number" || !isFinite(p.x) || !isFinite(p.y) ||
+          p.x<0 || p.x>width || p.y<0 || p.y>height)
+         throw new Error("Las coordenadas deben ser finitas y estar dentro del lienzo.");
+      return {x:p.x,y:p.y};
+   });
+   function cross(a,b,c) { return (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x); }
+   function on(a,b,p)
+   {
+      return Math.abs(cross(a,b,p))<1e-9 && p.x>=Math.min(a.x,b.x) && p.x<=Math.max(a.x,b.x) &&
+         p.y>=Math.min(a.y,b.y) && p.y<=Math.max(a.y,b.y);
+   }
+   function intersects(a,b,c,d)
+   {
+      var ac=cross(a,b,c),ad=cross(a,b,d),ca=cross(c,d,a),cb=cross(c,d,b);
+      return ((ac>0 && ad<0 || ac<0 && ad>0) && (ca>0 && cb<0 || ca<0 && cb>0)) ||
+         on(a,b,c) || on(a,b,d) || on(c,d,a) || on(c,d,b);
+   }
+   var area=0,n=points.length;
+   for (var i=0;i<n;++i)
+   {
+      var a=points[i],b=points[(i+1)%n],c=points[(i+2)%n];
+      for (var j=i+1;j<n;++j)
+         if (a.x===points[j].x && a.y===points[j].y)
+            throw new Error("No repitas vértices; Cerrar polígono une el último con el primero.");
+      if (Math.abs(cross(a,b,c))<1e-9 && (b.x-a.x)*(c.x-b.x)+(b.y-a.y)*(c.y-b.y)<0)
+         throw new Error("Las aristas del polígono no pueden retroceder sobre sí mismas.");
+      for (var k=i+2;k<n;++k)
+      {
+         if (i===0 && k===n-1) continue;
+         if (intersects(a,b,points[k],points[(k+1)%n]))
+            throw new Error("Las aristas del polígono no pueden cruzarse ni tocarse.");
+      }
+      area+=a.x*b.y-b.x*a.y;
+   }
+   if (Math.abs(area)<1)
+      throw new Error("El polígono debe tener una superficie de al menos medio píxel cuadrado.");
+   return points;
 }
+function MF_PolygonSelection(width,height)
+{
+   this.width=width; this.height=height; this.points=[]; this.closed=false;
+}
+MF_PolygonSelection.prototype.point=function(x,y)
+{
+   return {x:Math.round(MF_clamp(x,0,this.width)),y:Math.round(MF_clamp(y,0,this.height))};
+};
+MF_PolygonSelection.prototype.add=function(x,y)
+{
+   if (this.closed) throw new Error("Reabre el contorno con Deshacer o mueve sus vértices.");
+   if (this.points.length>=64) throw new Error("Se admiten hasta 64 vértices.");
+   this.points.push(this.point(x,y));
+};
+MF_PolygonSelection.prototype.close=function()
+{
+   MF_polygon(this.points,this.width,this.height); this.closed=true;
+};
+MF_PolygonSelection.prototype.undo=function()
+{
+   if (this.closed) this.closed=false;
+   else this.points.pop();
+};
+MF_PolygonSelection.prototype.polygon=function()
+{
+   if (!this.closed) throw new Error("Cierra el polígono antes de previsualizar o crear la máscara.");
+   return MF_polygon(this.points,this.width,this.height);
+};
 function MF_maskPoint(x,y,viewWidth,viewHeight,width,height)
 {
    var scale=Math.min(viewWidth/width,viewHeight/height);
    return {x:MF_clamp((x-(viewWidth-width*scale)/2)/scale,0,width),
       y:MF_clamp((y-(viewHeight-height*scale)/2)/scale,0,height)};
 }
-function MF_rectangleMask(reference,rect,work)
+function MF_polygonMask(reference,vertices,work)
 {
    MF_assertView(reference,"Detalle de focal larga");
-   var r=MF_rectangle(rect.x0,rect.y0,rect.x1,rect.y1,reference.image.width,reference.image.height);
-   return MF_math("iif(x()>="+r.x0+" && x()<"+r.x1+" && y()>="+r.y0+" && y()<"+r.y1+",1,0)",
-      reference,work,"CoberturaRectangular",false);
+   var points=MF_polygon(vertices,reference.image.width,reference.image.height),inside="0";
+   // Regla par/impar por cruces de una semirrecta. Se evalúa el centro de cada
+   // píxel. Se omiten horizontales para evitar divisiones por cero en PixelMath.
+   for (var i=0;i<points.length;++i)
+   {
+      var a=points[i],b=points[(i+1)%points.length];
+      if (a.y===b.y) continue;
+      var crossing="((("+a.y+">(y()+0.5)) != ("+b.y+">(y()+0.5))) && "+
+         "((x()+0.5)<("+a.x+"+((y()+0.5)-"+a.y+")*("+(b.x-a.x)+")/("+(b.y-a.y)+"))))";
+      inside="("+inside+" != "+crossing+")";
+   }
+   return MF_math("iif("+inside+",1,0)",reference,work,"CoberturaPoligonal",false);
 }
 // Mismo cálculo para la previsualización de máscara y para la mezcla final.
 // El soporte permanece duro: la transición se aplica una sola vez, hacia dentro.
@@ -235,22 +301,22 @@ function MF_effectiveMask(support,sigma,work)
    work.close(blurred);
    return effective;
 }
-function MF_renderCoverage(reference,rect,sigma)
+function MF_renderCoverage(reference,vertices,sigma)
 {
    var work=new MF_Work;
    try
    {
-      var support=MF_rectangleMask(reference,rect,work);
+      var support=MF_polygonMask(reference,vertices,work);
       return MF_effectiveMask(support,sigma,work).mainView.image.render();
    }
    finally { work.dispose(); }
 }
-function MF_createCoverage(reference,rect)
+function MF_createCoverage(reference,vertices)
 {
    var work=new MF_Work;
    try
    {
-      var mask=MF_rectangleMask(reference,rect,work);
+      var mask=MF_polygonMask(reference,vertices,work);
       MF_copyMetadata(reference.window,mask);
       mask.show();
       work.release(mask);
@@ -437,7 +503,7 @@ var MF_HELP = "MEZCLA DE FOCALES · "+MF_VERSION+" (desarrollo)\n\n"+
    "Entradas: base de gran campo, detalle de focal larga y máscara monocroma de cobertura.\n"+
    "Las tres deben estar registradas y tener las mismas dimensiones. Las imágenes deben estar estiradas y sin estrellas.\n\n"+
    "La base determina dimensiones y escala de salida. Para conservar el muestreo de la focal larga, prepara previamente una cuadrícula que lo conserve. Ampliar la base no crea detalle fuera del campo de la focal larga.\n\n"+
-   "La máscara debe ser blanca solo donde existe detalle válido y negra fuera; no uses la luminancia de la nebulosa como sustituto de la cobertura. Crear máscara permite dibujar un rectángulo sobre el detalle y previsualizar la transición a resolución completa. La máscara conservada tiene bordes duros: la transición elegida se aplica una sola vez al preparar la mezcla. Para un campo girado, dibuja un rectángulo interior o aporta una máscara externa con su geometría real. No hay detección automática de bordes negros.\n\n"+
+   "La máscara debe ser blanca solo donde existe detalle válido y negra fuera; no uses la luminancia de la nebulosa como sustituto de la cobertura. Crear máscara permite marcar de 3 a 64 vértices sobre el detalle, cerrar el polígono y mover sus vértices. Se admiten contornos cóncavos sin cruces ni huecos. Previsualiza la transición a resolución completa. La máscara conservada tiene bordes duros: la transición elegida se aplica una sola vez al preparar la mezcla. También puedes aportar una máscara externa. No hay detección automática de bordes negros.\n\n"+
    "Sigma menor y mayor seleccionan una banda por diferencia de gaussianas. Son desviaciones estándar, en píxeles de salida, no tamaños exactos de estructuras ni capas MLT. Menor=0 incluye los píxeles más finos y puede incorporar más ruido. Empieza con 1 y 4.\n\n"+
    "La transición suaviza la cobertura sin extenderla fuera de la máscara. El ajuste automático compara el contraste de estructuras grandes dentro de la máscara; si no es fiable usa ganancia 1 y muestra un aviso. No es una calibración fotométrica y puede ser inadecuado para filtros o estirados muy distintos.\n\n"+
    "La intensidad interpola entre el detalle base y el detalle de focal larga en la banda elegida; no suma sin más dos versiones del mismo detalle. La ganancia relativa corrige la amplitud del detalle. Las estructuras grandes de la base se mantienen en la componente de trabajo.\n\n"+
@@ -469,32 +535,65 @@ constructor(reference,feather)
    var self=this, image=reference.image;
    this.reference=reference; this.result=null; this.maskBitmap=null; this.syncing=false; this.busy=false;
    this.imageWidth=image.width; this.imageHeight=image.height;
-   this.windowTitle="Crear máscara de cobertura · "+reference.id;
+   this.selection=new MF_PolygonSelection(image.width,image.height); this.selected=-1;
+   this.windowTitle="Crear máscara poligonal · "+reference.id;
    image.pushSelections();
    try { image.resetSelections(); this.detailBitmap=image.render(); }
    finally { image.popSelections(); }
-   this.fields=[];
-   var coordinates=new HorizontalSizer; coordinates.spacing=6;
-   ["x0","y0","x1","y1"].forEach(function(name,i)
+   this.vertex=new SpinBox(this); this.vertex.minValue=1; this.vertex.maxValue=1; this.vertex.value=1;
+   this.vertex.onValueUpdated=function(value)
    {
-      var edit=new SpinBox(self); edit.minValue=0;
-      edit.maxValue=i%2?image.height:image.width;
-      edit.value=i<2?0:edit.maxValue;
-      edit.setScaledMinWidth(85);
-      edit.onValueUpdated=function() { if (!self.syncing) self.invalidate(); };
-      self.fields.push(edit); coordinates.add(MF_label(self,name+":")); coordinates.add(edit);
-   });
-   coordinates.addStretch();
+      if (!self.syncing && self.selection.points.length)
+      {
+         self.selected=value-1; self.syncCoordinates(); self.detailPane.update();
+      }
+   };
+   this.vertexX=new SpinBox(this); this.vertexX.minValue=0; this.vertexX.maxValue=image.width;
+   this.vertexY=new SpinBox(this); this.vertexY.minValue=0; this.vertexY.maxValue=image.height;
+   this.vertexX.setScaledMinWidth(85); this.vertexY.setScaledMinWidth(85);
+   function coordinateChanged()
+   {
+      if (self.syncing || self.selected<0) return;
+      self.selection.points[self.selected]=self.selection.point(self.vertexX.value,self.vertexY.value);
+      self.invalidate();
+   }
+   this.vertexX.onValueUpdated=coordinateChanged; this.vertexY.onValueUpdated=coordinateChanged;
    this.feather=new SpinBox(this); this.feather.minValue=0; this.feather.maxValue=256; this.feather.value=feather;
    this.feather.onValueUpdated=function() { self.invalidate(); };
-   coordinates.add(MF_label(this,"Transición (px):")); coordinates.add(this.feather);
+   var coordinates=new HorizontalSizer; coordinates.spacing=6;
+   coordinates.add(MF_label(this,"Vértice:")); coordinates.add(this.vertex);
+   coordinates.add(MF_label(this,"x:")); coordinates.add(this.vertexX);
+   coordinates.add(MF_label(this,"y:")); coordinates.add(this.vertexY);
+   coordinates.addStretch(); coordinates.add(MF_label(this,"Transición (px):")); coordinates.add(this.feather);
+   this.closePolygon=new PushButton(this); this.closePolygon.text="Cerrar polígono";
+   this.closePolygon.onClick=function() { self.finishPolygon(); };
+   this.undo=new PushButton(this); this.undo.text="Deshacer";
+   this.undo.onClick=function()
+   {
+      self.selection.undo(); self.selected=self.selection.points.length-1; self.invalidate();
+   };
+   this.clear=new PushButton(this); this.clear.text="Borrar contorno";
+   this.clear.onClick=function()
+   {
+      self.selection=new MF_PolygonSelection(self.imageWidth,self.imageHeight);
+      self.selected=-1; self.invalidate();
+   };
+   this.fullFrame=new PushButton(this); this.fullFrame.text="Todo el lienzo";
+   this.fullFrame.onClick=function()
+   {
+      self.selection.points=[{x:0,y:0},{x:self.imageWidth,y:0},
+         {x:self.imageWidth,y:self.imageHeight},{x:0,y:self.imageHeight}];
+      self.selection.close(); self.selected=0; self.invalidate();
+   };
+   var tools=new HorizontalSizer; tools.spacing=8;
+   tools.add(this.closePolygon); tools.add(this.undo); tools.add(this.clear); tools.add(this.fullFrame); tools.addStretch();
    this.detailPane=this.makePane(false); this.maskPane=this.makePane(true);
    var left=new VerticalSizer; left.spacing=4;
-   left.add(MF_label(this,"Detalle · arrastra para delimitar la cobertura")); left.add(this.detailPane,100);
+   left.add(MF_label(this,"Detalle · clic añade; arrastre mueve un vértice")); left.add(this.detailPane,100);
    var right=new VerticalSizer; right.spacing=4;
    right.add(MF_label(this,"Máscara efectiva · blanco incorpora detalle")); right.add(this.maskPane,100);
    var columns=new HorizontalSizer; columns.spacing=8; columns.add(left,100); columns.add(right,100);
-   this.status=MF_label(this,"El rectángulo inicial cubre todo el lienzo. Ajústalo al campo válido y pulsa Previsualizar transición.");
+   this.status=MF_label(this,"");
    this.preview=new PushButton(this); this.preview.text="Previsualizar transición";
    this.preview.onClick=function() { self.calculate(); };
    this.create=new PushButton(this); this.create.text="Crear y seleccionar máscara";
@@ -502,8 +601,7 @@ constructor(reference,feather)
    {
       try
       {
-         self.result=MF_createCoverage(self.reference,self.rectangle());
-         self.ok();
+         self.result=MF_createCoverage(self.reference,self.selection.polygon()); self.ok();
       }
       catch (e) { self.status.text="Error: "+String(e); }
    };
@@ -511,59 +609,72 @@ constructor(reference,feather)
    var buttons=new HorizontalSizer; buttons.spacing=8;
    buttons.add(this.preview); buttons.addStretch(); buttons.add(this.create); buttons.add(cancel);
    this.sizer=new VerticalSizer; this.sizer.margin=12; this.sizer.spacing=8;
-   this.sizer.add(MF_label(this,"Dibuja un rectángulo completamente dentro de la cobertura válida de la focal larga. El brillo de la imagen no determina la máscara. Si el campo está girado, deja fuera las esquinas sin datos."));
-   this.sizer.add(columns,100); this.sizer.add(coordinates);
-   this.sizer.add(MF_label(this,"Coordenadas en píxeles; x1 e y1 son límites excluidos. La vista de la máscara usa el mismo cálculo a resolución completa que la mezcla. Se conservará una máscara de bordes duros y la transición elegida pasará al diálogo principal."));
+   this.sizer.add(MF_label(this,"Marca en orden los vértices dentro de la cobertura válida de la focal larga. Cierra con el botón o pulsando el primer vértice. Se admite un contorno cóncavo, sin cruces ni huecos. El brillo del detalle no determina la máscara."));
+   this.sizer.add(columns,100); this.sizer.add(tools); this.sizer.add(coordinates);
+   this.sizer.add(MF_label(this,"Mueve los vértices o ajusta sus coordenadas en píxeles. Deshacer reabre un contorno cerrado y después elimina el último vértice. Se conserva una máscara de bordes duros; la transición se aplica una vez, hacia dentro, al mezclar."));
    this.sizer.add(this.status); this.sizer.add(buttons);
-   this.setScaledMinSize(940,590); this.adjustToContents();
+   this.setScaledMinSize(940,620); this.adjustToContents(); this.invalidate();
 }
-rectangle()
-{
-   return MF_rectangle(this.fields[0].value,this.fields[1].value,this.fields[2].value,this.fields[3].value,
-      this.imageWidth,this.imageHeight);
-}
-invalidate()
-{
-   this.maskBitmap=null;
-   if (this.status) this.status.text="Cobertura o transición modificada. Pulsa Previsualizar transición para ver la máscara efectiva.";
-   if (this.detailPane) this.detailPane.update();
-   if (this.maskPane) this.maskPane.update();
-}
-setRectangle(rect)
+syncCoordinates()
 {
    this.syncing=true;
    try
    {
-      var values=[rect.x0,rect.y0,rect.x1,rect.y1];
-      this.fields.forEach(function(field,i) { field.value=values[i]; });
+      var points=this.selection.points,n=points.length;
+      this.selected=n?MF_clamp(this.selected,0,n-1):-1;
+      this.vertex.maxValue=Math.max(1,n); this.vertex.value=this.selected+1 || 1;
+      this.vertex.enabled=this.vertexX.enabled=this.vertexY.enabled=n>0 && !this.busy;
+      this.vertexX.value=n?points[this.selected].x:0; this.vertexY.value=n?points[this.selected].y:0;
    }
    finally { this.syncing=false; }
-   this.invalidate();
+}
+invalidate()
+{
+   this.maskBitmap=null; this.syncCoordinates();
+   var valid=false;
+   if (!this.selection.closed)
+      this.status.text=this.selection.points.length+" vértices · añade puntos y cierra el polígono para continuar.";
+   else
+   {
+      try { this.selection.polygon(); valid=true; this.status.text="Contorno cerrado. Pulsa Previsualizar transición para ver la máscara efectiva."; }
+      catch (e) { this.status.text=String(e); }
+   }
+   this.preview.enabled=this.create.enabled=valid && !this.busy;
+   this.closePolygon.enabled=!this.selection.closed && this.selection.points.length>=3 && !this.busy;
+   this.undo.enabled=this.clear.enabled=this.selection.points.length>0 && !this.busy;
+   this.detailPane.update(); this.maskPane.update();
+}
+finishPolygon()
+{
+   try { this.selection.close(); this.invalidate(); }
+   catch (e) { this.status.text=String(e); }
 }
 calculate()
 {
    if (this.busy) return;
    this.busy=true; this.preview.enabled=false; this.create.enabled=false;
-   this.fields.forEach(function(field) { field.enabled=false; }); this.feather.enabled=false;
    this.status.text="Calculando la transición a resolución completa…";
    try
    {
-      // No se procesan eventos mientras hay temporales: el diálogo no puede
-      // cerrarse a mitad de cálculo. No se conserva ninguna ventana de prueba.
-      this.maskBitmap=MF_renderCoverage(this.reference,this.rectangle(),this.feather.value);
+      // No se procesan eventos mientras hay temporales; no puede cerrarse el
+      // diálogo durante el cálculo. La vista usa el mismo método que la mezcla.
+      this.maskBitmap=MF_renderCoverage(this.reference,this.selection.polygon(),this.feather.value);
       this.status.text="Transición calculada · sigma "+this.feather.value+" px. Negro conserva la base; gris mezcla parcialmente.";
    }
    catch (e) { this.maskBitmap=null; this.status.text="Error: "+String(e); }
    finally
    {
-      this.busy=false; this.preview.enabled=true; this.create.enabled=true;
-      this.fields.forEach(function(field) { field.enabled=true; }); this.feather.enabled=true;
-      this.maskPane.update();
+      this.busy=false; this.preview.enabled=this.create.enabled=true; this.maskPane.update();
    }
 }
 makePane(isMask)
 {
    var self=this, pane=new Control(this); pane.setScaledMinSize(350,300); pane.drag=null;
+   function geometry()
+   {
+      var s=Math.min(pane.width/self.imageWidth,pane.height/self.imageHeight);
+      return {scale:s,x:(pane.width-self.imageWidth*s)/2,y:(pane.height-self.imageHeight*s)/2};
+   }
    pane.onPaint=function()
    {
       var bitmap=isMask?self.maskBitmap:self.detailBitmap, g=new Graphics(this);
@@ -571,16 +682,23 @@ makePane(isMask)
       {
          g.fillRect(0,0,this.width,this.height,new Brush(0xff202020));
          if (!bitmap) return;
-         var s=Math.min(this.width/self.imageWidth,this.height/self.imageHeight);
-         var ox=(this.width-self.imageWidth*s)/2,oy=(this.height-self.imageHeight*s)/2;
+         var geo=geometry(),s=geo.scale,ox=geo.x,oy=geo.y;
          g.smoothInterpolation=s<1;
          g.drawScaledBitmapRect(ox,oy,ox+self.imageWidth*s,oy+self.imageHeight*s,bitmap,0,0,bitmap.width,bitmap.height);
          if (!isMask)
          {
-            var r;
-            try { r=self.rectangle(); } catch (e) { return; }
+            var points=self.selection.points;
             g.pen=new Pen(0xffffff00,2);
-            g.drawRect(ox+r.x0*s,oy+r.y0*s,ox+r.x1*s,oy+r.y1*s);
+            for (var i=1;i<points.length;++i)
+               g.drawLine(ox+points[i-1].x*s,oy+points[i-1].y*s,ox+points[i].x*s,oy+points[i].y*s);
+            if (self.selection.closed && points.length>2)
+               g.drawLine(ox+points[points.length-1].x*s,oy+points[points.length-1].y*s,ox+points[0].x*s,oy+points[0].y*s);
+            for (var j=0;j<points.length;++j)
+            {
+               g.pen=new Pen(j===self.selected?0xff00ffff:0xffffff00,2);
+               var px=ox+points[j].x*s,py=oy+points[j].y*s;
+               g.drawRect(px-4,py-4,px+4,py+4);
+            }
          }
       }
       finally { g.end(); }
@@ -589,27 +707,55 @@ makePane(isMask)
    {
       return MF_maskPoint(x,y,pane.width,pane.height,self.imageWidth,self.imageHeight);
    }
-   function dragTo(x,y)
+   function nearest(x,y)
+   {
+      var geo=geometry(),found=-1,best=81;
+      self.selection.points.forEach(function(p,i)
+      {
+         var dx=geo.x+p.x*geo.scale-x,dy=geo.y+p.y*geo.scale-y,d=dx*dx+dy*dy;
+         if (d<best) { best=d; found=i; }
+      });
+      return found;
+   }
+   function moveTo(index,x,y)
    {
       var p=point(x,y);
-      try { self.setRectangle(MF_rectangle(pane.drag.x,pane.drag.y,p.x,p.y,self.imageWidth,self.imageHeight)); }
-      catch (e) { /* Un clic sin superficie no sustituye la selección anterior. */ }
+      self.selection.points[index]=self.selection.point(p.x,p.y); self.selected=index; self.invalidate();
    }
    if (!isMask)
    {
       pane.onMousePress=function(x,y,button)
       {
-         if (!self.busy && button===MouseButton.Left) this.drag=point(x,y);
+         if (self.busy || button!==MouseButton.Left) return;
+         var index=nearest(x,y);
+         if (index===0 && !self.selection.closed && self.selection.points.length>=3)
+         {
+            self.finishPolygon(); return;
+         }
+         if (index>=0)
+         {
+            self.selected=index; this.drag=index; self.syncCoordinates(); this.update(); return;
+         }
+         if (self.selection.closed) return;
+         var p=point(x,y);
+         try
+         {
+            self.selection.add(p.x,p.y); self.selected=self.selection.points.length-1; self.invalidate();
+         }
+         catch (e) { self.status.text=String(e); }
       };
       pane.onMouseMove=function(x,y,buttons)
       {
-         if (!this.drag || self.busy) return;
+         if (this.drag===null || self.busy) return;
          if (!(buttons & MouseButton.Left)) { this.drag=null; return; }
-         dragTo(x,y);
+         moveTo(this.drag,x,y);
       };
       pane.onMouseRelease=function(x,y,button)
       {
-         if (button===MouseButton.Left && this.drag) { dragTo(x,y); this.drag=null; }
+         if (button===MouseButton.Left && this.drag!==null)
+         {
+            moveTo(this.drag,x,y); this.drag=null;
+         }
       };
    }
    return pane;
@@ -690,7 +836,7 @@ constructor()
       catch (e) { new MessageBox(String(e),"Crear máscara",StdIcon_Error,StdButton_Ok).execute(); }
    };
    var maskTools=new HorizontalSizer; maskTools.spacing=8;
-   maskTools.add(createMask); maskTools.add(MF_label(this,"Rectángulo sobre el detalle, con vista de la transición."),100);
+   maskTools.add(createMask); maskTools.add(MF_label(this,"Polígono sobre el detalle, con vista de la transición."),100);
    var help=new PushButton(this); help.text="Ayuda"; help.onClick=MF_help;
    var refresh=new PushButton(this); refresh.text="Actualizar listas"; refresh.onClick=refreshViews;
    var run=new PushButton(this); run.text="Preparar comparación";

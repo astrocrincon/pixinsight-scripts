@@ -88,6 +88,7 @@ function fixture(same=false) {
   return {base:base.mainView,detail:detail.mainView,mask:mask.mainView,fine:1,coarse:4,feather:2,autoGain:false,id:'Output',prepared:true};
 }
 function almost(a,b,eps=1e-10) { assert.ok(Math.abs(a-b)<eps,`${a} != ${b}`); }
+function box(x0=5,y0=5,x1=27,y1=27) { return [{x:x0,y:y0},{x:x1,y:y0},{x:x1,y:y1},{x:x0,y:y1}]; }
 
 test('missing registration, wrong mask and invalid scale ranges are rejected',()=>{
   const c=fixture(); c.mask.image.width=31;
@@ -155,12 +156,12 @@ test('zoom preserves the image coordinate beneath the pointer, and pan remains w
   assert.ok(c.x>=600/(2*c.scale));assert.ok(c.y<=4000-400/(2*c.scale));
 });
 
-test('rectangle selection supports reverse drags, pixel bounds and rejects empty coverage',()=>{
-  const r=ctx.MF_rectangle(40.7,23.2,-4,-9,32,32);
-  assert.deepEqual({...r},{x0:0,y0:0,x1:32,y1:24});
-  assert.throws(()=>ctx.MF_rectangle(5.2,4,5.2,20,32,32),/anchura/);
-  assert.throws(()=>ctx.MF_rectangle(40,4,50,20,32,32),/anchura/);
-  assert.throws(()=>ctx.MF_rectangle(NaN,4,20,20,32,32),/finitos/);
+test('polygon validation rejects invalid bounds, insufficient vertices and zero area',()=>{
+  assert.equal(ctx.MF_polygon(box(),32,32).length,4);
+  assert.throws(()=>ctx.MF_polygon(box(-1),32,32),/lienzo/);
+  assert.throws(()=>ctx.MF_polygon([{x:NaN,y:2},{x:5,y:2},{x:5,y:5}],32,32),/finitas/);
+  assert.throws(()=>ctx.MF_polygon(box().slice(0,2),32,32),/3 y 64/);
+  assert.throws(()=>ctx.MF_polygon([{x:2,y:2},{x:3,y:3},{x:4,y:4}],32,32),/retroceder|superficie/);
 });
 test('mask drawing maps a letterboxed preview to exact image coordinates and clamps margins',()=>{
   const p=ctx.MF_maskPoint(300,100,600,400,6000,2000);
@@ -171,7 +172,7 @@ test('mask drawing maps a letterboxed preview to exact image coordinates and cla
 test('a created coverage is monochrome geometry even when the entire detail is black',()=>{
   const c=fixture();c.detail.image.data.fill(0);
   const before=c.detail.image.data.slice(), selection={...c.detail.image.selection};
-  const mask=ctx.MF_createCoverage(c.detail,{x0:5,y0:5,x1:27,y1:27});
+  const mask=ctx.MF_createCoverage(c.detail,box());
   assert.equal(mask.mainView.image.numberOfChannels,1);assert.equal(mask.shown,true);
   for(let y=0;y<32;y++)for(let x=0;x<32;x++)
     assert.equal(mask.mainView.image.sample(x,y,0),x>=5&&x<27&&y>=5&&y<27?1:0);
@@ -179,7 +180,7 @@ test('a created coverage is monochrome geometry even when the entire detail is b
   assert.equal(registry.size,4);mask.forceClose();
 });
 test('mask preview matches the effective blend mask without baking a second transition into the support',()=>{
-  const c=fixture(),rect={x0:5,y0:5,x1:27,y1:27};
+  const c=fixture(),rect=box();
   const mask=ctx.MF_createCoverage(c.detail,rect);
   const bitmap=ctx.MF_renderCoverage(c.detail,rect,2);
   assert.equal(registry.size,4);
@@ -194,7 +195,7 @@ test('mask preview matches the effective blend mask without baking a second tran
   assert.equal(registry.size,4);
 });
 test('mask preview and creation failures remove only their own windows',()=>{
-  const c=fixture(),rect={x0:5,y0:5,x1:27,y1:27};
+  const c=fixture(),rect=box();
   for(const error of ['render','assign','pixelmath']) {
     failure=error;
     assert.throws(()=>ctx.MF_renderCoverage(c.detail,rect,2),/injected/);
@@ -203,5 +204,66 @@ test('mask preview and creation failures remove only their own windows',()=>{
   failure='show';
   assert.throws(()=>ctx.MF_createCoverage(c.detail,rect),/show failure/);
   assert.equal(registry.size,3);
+});
+
+test('a rotated footprint excludes its bounding-box corners in either winding direction',()=>{
+  const c=fixture(),diamond=[{x:16,y:3},{x:29,y:16},{x:16,y:29},{x:3,y:16}];
+  const mask=ctx.MF_createCoverage(c.detail,diamond);
+  const reversed=ctx.MF_createCoverage(c.detail,[...diamond].reverse());
+  assert.deepEqual(mask.mainView.image.data,reversed.mainView.image.data);
+  for(let y=0;y<32;y++)for(let x=0;x<32;x++) {
+    const distance=Math.abs(x+0.5-16)+Math.abs(y+0.5-16);
+    if(distance!==13)assert.equal(mask.mainView.image.sample(x,y,0),distance<13?1:0);
+  }
+  assert.equal(mask.mainView.image.sample(4,4,0),0);
+  assert.equal(mask.mainView.image.sample(16,16,0),1);
+  const full=ctx.MF_createCoverage(c.detail,box(0,0,32,32));
+  assert.ok([...full.mainView.image.data].every(x=>x===1));
+});
+test('a concave polygon preserves its notch and shares feathering with the actual blend',()=>{
+  const c=fixture(),points=[{x:4,y:4},{x:28,y:4},{x:28,y:12},{x:12,y:12},{x:12,y:28},{x:4,y:28}];
+  const mask=ctx.MF_createCoverage(c.detail,points),hard=mask.mainView.image;
+  for(let y=0;y<32;y++)for(let x=0;x<32;x++)
+    assert.equal(hard.sample(x,y,0),x>=4&&x<28&&y>=4&&y<28&&(x<12||y<12)?1:0);
+  const rotatedOrder=[...points.slice(2),...points.slice(0,2)];
+  const reversed=ctx.MF_renderCoverage(c.detail,rotatedOrder.reverse(),0);
+  assert.deepEqual(hard.data,reversed.data);
+  const preview=ctx.MF_renderCoverage(c.detail,points,1);
+  const state=ctx.MF_prepare({...c,mask:mask.mainView,feather:1});
+  preview.data.forEach((v,i)=>almost(v,state.mask.mainView.image.data[i]));
+  assert.equal(preview.data[16*32+16],0);
+  const out=ctx.MF_update(state,0.7,1).mainView.image;
+  for(let i=0;i<hard.data.length;i++)if(!hard.data[i])almost(out.data[i],c.base.image.data[i]);
+  state.work.dispose();assert.equal(registry.size,4);
+});
+test('self-crossings, repeated vertices, touching edges and retraced edges are rejected',()=>{
+  const invalid=[
+    [{x:4,y:4},{x:28,y:28},{x:4,y:28},{x:28,y:4}],
+    [...box(),{x:5,y:5}],
+    [{x:4,y:4},{x:28,y:4},{x:28,y:28},{x:16,y:4},{x:4,y:28}],
+    [{x:4,y:4},{x:28,y:4},{x:16,y:4},{x:16,y:28},{x:4,y:28}]
+  ];
+  const c=fixture();
+  invalid.forEach(points=>{
+    assert.throws(()=>ctx.MF_polygon(points,32,32),/cruzarse|repitas|retroceder/);
+    assert.throws(()=>ctx.MF_createCoverage(c.detail,points));
+    assert.equal(registry.size,3);
+  });
+});
+test('selection requires closure, allows correction and undo, and enforces the vertex limit',()=>{
+  const s=new ctx.MF_PolygonSelection(32,32);
+  s.add(-4,3.6);s.add(40,4);s.add(16,40);
+  assert.deepEqual({...s.points[0]},{x:0,y:4});assert.equal(s.points[2].y,32);
+  assert.throws(()=>s.polygon(),/Cierra/);s.close();assert.equal(s.polygon().length,3);
+  assert.throws(()=>s.add(3,3),/Reabre/);
+  s.undo();assert.equal(s.closed,false);assert.equal(s.points.length,3);
+  s.undo();assert.equal(s.points.length,2);assert.throws(()=>s.close(),/3 y 64/);
+  s.add(16,32);s.close();
+  const limit=new ctx.MF_PolygonSelection(32,32);
+  for(let i=0;i<64;i++)limit.add(16+14*Math.cos(i*Math.PI/32),16+14*Math.sin(i*Math.PI/32));
+  assert.throws(()=>limit.add(16,16),/64/);
+  const invalid=new ctx.MF_PolygonSelection(32,32);
+  [[4,4],[28,28],[4,28],[28,4]].forEach(([x,y])=>invalid.add(x,y));
+  assert.throws(()=>invalid.close(),/cruzarse/);assert.equal(invalid.closed,false);
 });
 

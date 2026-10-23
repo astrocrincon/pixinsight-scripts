@@ -36,16 +36,24 @@ function MF_nativeTests()
       var base=make("BaseRGB",3),detail=make("Detalle",1),mask=make("Mascara",1);
       fill(base,[0.2,0.3,0.4]);
       formula(detail,"0.35+0.03*sin(x()*0.8)+0.02*cos(y()*0.7)");
-      var coverageRect={x0:11,y0:11,x1:54,y1:54};
-      var generated=MF_createCoverage(detail.mainView,coverageRect);
+      var coveragePolygon=[{x:11,y:11},{x:54,y:11},{x:54,y:54},{x:11,y:54}];
+      var generated=MF_createCoverage(detail.mainView,coveragePolygon);
       fixtures.own(generated);
       check(generated.mainView.image.numberOfChannels===1,"cobertura creada monocroma");
       check(generated.mainView.image.width===64 && generated.mainView.image.height===64,"dimensiones de cobertura creada");
       check(generated.mainView.image.sample(11,11,0)===1 && generated.mainView.image.sample(53,53,0)===1,"interior y límites incluidos");
       check(generated.mainView.image.sample(10,11,0)===0 && generated.mainView.image.sample(54,53,0)===0,"exterior y límite excluido");
       mask.forceClose(); fixtures.release(mask); mask=generated;
-      var previewBitmap=MF_renderCoverage(detail.mainView,coverageRect,2);
+      var previewBitmap=MF_renderCoverage(detail.mainView,coveragePolygon,2);
       check(previewBitmap.width===64 && previewBitmap.height===64,"previsualización de máscara a resolución completa");
+      var rotated=fixtures.own(MF_createCoverage(detail.mainView,[{x:32,y:4},{x:60,y:32},{x:32,y:60},{x:4,y:32}]));
+      check(rotated.mainView.image.sample(32,32,0)===1 && rotated.mainView.image.sample(5,5,0)===0,"cobertura girada sin esquinas del rectángulo envolvente");
+      var concave=fixtures.own(MF_createCoverage(detail.mainView,[{x:4,y:4},{x:60,y:4},{x:60,y:20},{x:20,y:20},{x:20,y:60},{x:4,y:60}]));
+      check(concave.mainView.image.sample(40,10,0)===1 && concave.mainView.image.sample(10,40,0)===1 && concave.mainView.image.sample(40,40,0)===0,"polígono cóncavo");
+      var crossingBlocked=false;
+      try { MF_createCoverage(detail.mainView,[{x:4,y:4},{x:60,y:60},{x:4,y:60},{x:60,y:4}]); }
+      catch (e) { crossingBlocked=true; }
+      check(crossingBlocked,"rechazar contorno cruzado");
       base.mainView.image.selectedChannel=2;
       base.mainView.image.selectedRect=new Rect(5,7,24,26);
       var config={base:base.mainView,detail:detail.mainView,mask:mask.mainView,

@@ -1,4 +1,4 @@
-# Mezcla de focales — 0.2.0 de desarrollo
+# Mezcla de focales — 0.3.0 de desarrollo
 
 Primera implementación para combinar una base de gran campo con el detalle de una focal larga, sobre imágenes **ya estiradas y sin estrellas**. No se aplica STF adicional.
 
@@ -27,15 +27,15 @@ La cuadrícula de la base determina la escala y dimensiones del resultado. Para 
 No se deduce la cobertura del brillo del detalle: una nebulosa oscura puede contener píxeles casi negros que siguen siendo válidos. Se puede crear la máscara dentro del script o seleccionar una imagen monocroma preparada externamente.
 
 1. Seleccionar la imagen de **Detalle** ya registrada sobre la cuadrícula de salida y pulsar **Crear máscara…**.
-2. Arrastrar sobre el panel de detalle para dibujar un rectángulo completamente dentro del campo válido. El rectángulo inicial ocupa todo el lienzo; hay que ajustarlo si contiene bordes sin datos. Las coordenadas permiten afinar la selección en píxeles; `x1` e `y1` son límites excluidos. El dibujo admite arrastre en cualquier dirección.
-3. Elegir la **Transición (px)** y pulsar **Previsualizar transición**. El panel derecho muestra la máscara efectiva, calculada a resolución completa con el mismo método que la mezcla. Blanco incorpora detalle; gris mezcla parcialmente; negro conserva la base. Si se cambian coordenadas o transición, se borra la vista anterior hasta recalcularla.
+2. Pulsar en orden sobre el panel de detalle para marcar los vértices de un polígono completamente dentro del campo válido. Se empieza sin contorno; se admiten de **3 a 64 vértices**, en cualquier sentido. Cerrar pulsando el primer vértice o **Cerrar polígono**. Para un campo rectangular girado bastan sus cuatro esquinas interiores.
+3. Arrastrar un vértice para moverlo, o elegir su número y ajustar **x** e **y** en píxeles. **Deshacer** reabre un contorno cerrado; otra pulsación elimina el último vértice. **Borrar contorno** permite empezar de nuevo. **Todo el lienzo** sirve cuando el detalle cubre realmente la imagen completa. Elegir la **Transición (px)** y pulsar **Previsualizar transición**. El panel derecho muestra la máscara efectiva, calculada a resolución completa con el mismo método que la mezcla. Blanco incorpora detalle; gris mezcla parcialmente; negro conserva la base. Si se modifica el contorno o la transición, se borra la vista anterior hasta recalcularla.
 4. Pulsar **Crear y seleccionar máscara**. Se abre una nueva imagen monocroma, sin sobrescribir ninguna existente, y queda seleccionada en el diálogo principal. La transición elegida también pasa al diálogo principal.
 
-La imagen creada conserva un **rectángulo blanco de bordes duros sobre negro**. La transición se aplica una sola vez al preparar la mezcla, hacia dentro de ese soporte. Por eso la imagen conservada y la vista de la máscara efectiva tienen distinto aspecto cuando la transición es mayor que cero. La máscara creada permanece abierta aunque después se cancele la mezcla; se puede guardar o reutilizar. Cancelar el editor no crea una máscara y las previsualizaciones no dejan ventanas temporales abiertas.
+La imagen creada conserva un **polígono blanco de bordes duros sobre negro**. Las coordenadas de sus vértices representan límites de píxel entre `0` y el ancho/alto del lienzo; cada píxel se incluye según la posición de su centro. La transición se aplica una sola vez al preparar la mezcla, hacia dentro de ese soporte. Por eso la imagen conservada y la vista de la máscara efectiva tienen distinto aspecto cuando la transición es mayor que cero. La máscara creada permanece abierta aunque después se cancele la mezcla; se puede guardar o reutilizar. Cancelar el editor no crea una máscara y las previsualizaciones no dejan ventanas temporales abiertas.
 
 El editor muestra el detalle estirado sin STF y ajustado al panel; para precisar el borde se usan las coordenadas. El cálculo a resolución completa puede tardar y bloquear temporalmente el diálogo en imágenes grandes. No modifica los píxeles ni las selecciones del detalle original.
 
-Esta versión dibuja rectángulos alineados con los ejes. Si el campo está girado, el rectángulo debe quedar completamente dentro de la región válida, o se debe preparar externamente una máscara con su geometría real para aprovechar todo el campo. No usar como máscara una copia de la luminancia de la nebulosa.
+Se admiten contornos convexos y cóncavos. El script rechaza vértices repetidos, aristas que se cruzan, se tocan o retroceden sobre sí mismas y polígonos sin superficie. Esta versión utiliza un único contorno, sin agujeros ni regiones desconectadas; para esos casos se puede aportar una máscara externa. El usuario delimita la cobertura: no hay detección automática del campo ni de píxeles defectuosos. No usar como máscara una copia de la luminancia de la nebulosa.
 
 ## Controles y primera prueba
 
@@ -84,11 +84,11 @@ La implementación mantiene varias imágenes a resolución completa; con imágen
 node --test tests/mezcla_focales.test.cjs
 ```
 
-Hay 14 pruebas. Se comprueban geometría de las entradas, identidad con intensidad cero y con entradas iguales, cobertura, conservación de originales, independencia de ensayos, errores y limpieza de temporales, bloqueo de aceptación desactualizada, estimación de ganancia y geometría de navegación. También se comprueban el dibujo sobre un panel con márgenes, arrastres inversos, límites del rectángulo, creación de cobertura independiente del brillo, coincidencia entre la máscara previsualizada y la de la mezcla, ausencia de doble suavizado y limpieza tras fallos de creación o representación. Los procesos PJSR se representan mediante adaptadores en memoria; estas pruebas no validan los procesos ni la interfaz nativos.
+Hay 18 pruebas. Se comprueban geometría de las entradas, identidad con intensidad cero y con entradas iguales, cobertura, conservación de originales, independencia de ensayos, errores y limpieza de temporales, bloqueo de aceptación desactualizada, estimación de ganancia y geometría de navegación. También se comprueban la conversión de coordenadas en un panel con márgenes, cobertura girada y cóncava, independencia del sentido y del primer vértice, lienzo completo, cierre y deshacer, límite de vértices, rechazo de contornos ambiguos, creación de cobertura independiente del brillo, coincidencia entre la máscara previsualizada y la de la mezcla, ausencia de doble suavizado y limpieza tras fallos de creación o representación. Los procesos PJSR se representan mediante adaptadores en memoria; estas pruebas no validan los procesos ni la interfaz nativos.
 
 ### Pendiente en PixInsight
 
 No hay una instalación de PixInsight en este entorno. Se incluye `tests/Test_Mezcla_Focales_PixInsight.js` para ejecutar una prueba sintética de los procesos nativos. Descargar el repositorio completo y conservar las rutas; ejecutar ese archivo desde el editor de scripts. La prueba crea y elimina únicamente sus propias imágenes sintéticas y temporales.
 
-Después hay que comprobar visualmente el editor de máscara (arrastre, coordenadas, transición, cancelar y selección de la nueva imagen), el diálogo de mezcla, el zoom y el desplazamiento, y probar una pareja real de imágenes. Revisar especialmente el borde de cobertura, zonas de polvo tenue, ruido y crominancia antes de considerar una primera versión distribuible.
+Después hay que comprobar visualmente el editor de máscara (clics para añadir y cerrar, arrastre de vértices, coordenadas, deshacer, borrar, transición, cancelar y selección de la nueva imagen), el diálogo de mezcla, el zoom y el desplazamiento, y probar una pareja real de imágenes. Revisar especialmente el borde de cobertura, zonas de polvo tenue, ruido y crominancia antes de considerar una primera versión distribuible.
 
