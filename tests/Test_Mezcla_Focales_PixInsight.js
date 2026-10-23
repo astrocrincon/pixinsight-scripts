@@ -30,12 +30,39 @@ function MF_nativeTests()
       p.rescale=false; p.truncate=false;
       check(p.executeOn(window.mainView),"PixelMath de preparación");
    }
+   function maskDialogCallbacks(reference)
+   {
+      // Controles PJSR reales; callbacks invocados por la prueba, sin abrir un
+      // diálogo modal. No sustituye la inspección visual ni los eventos de Qt.
+      var editor=new MF_MaskDialog(reference,2),pane=editor.detailPane;
+      check(!editor.create.enabled && !editor.preview.enabled,"diálogo sin contorno bloquea creación");
+      function click(x,y)
+      {
+         var s=Math.min(pane.width/64,pane.height/64);
+         var sx=(pane.width-64*s)/2+x*s,sy=(pane.height-64*s)/2+y*s;
+         pane.onMousePress(sx,sy,MouseButton.Left);
+         pane.onMouseRelease(sx,sy,MouseButton.Left);
+      }
+      click(11,11); click(54,11); click(54,54); click(11,54); click(11,11);
+      check(editor.selection.closed && editor.create.enabled,"clics cierran el contorno y habilitan creación");
+      editor.preview.onClick();
+      check(editor.maskBitmap!==null && !editor.busy,"previsualizar máscara desde botón nativo");
+      editor.vertex.value=1; editor.vertex.onValueUpdated(1);
+      editor.vertexX.value=12; editor.vertexX.onValueUpdated(12);
+      check(editor.selection.points[0].x===12 && editor.maskBitmap===null,"edición de coordenada invalida la vista");
+      editor.undo.onClick();
+      check(!editor.selection.closed && !editor.create.enabled,"deshacer reabre y bloquea creación");
+      editor.clear.onClick();
+      check(editor.selection.points.length===0 && !editor.vertex.enabled,"borrar contorno reinicia controles");
+      editor.cancel();
+   }
    console.show();
    try
    {
       var base=make("BaseRGB",3),detail=make("Detalle",1),mask=make("Mascara",1);
       fill(base,[0.2,0.3,0.4]);
       formula(detail,"0.35+0.03*sin(x()*0.8)+0.02*cos(y()*0.7)");
+      maskDialogCallbacks(detail.mainView);
       var coveragePolygon=[{x:11,y:11},{x:54,y:11},{x:54,y:54},{x:11,y:54}];
       var generated=MF_createCoverage(detail.mainView,coveragePolygon);
       fixtures.own(generated);
@@ -89,7 +116,7 @@ function MF_nativeTests()
       state.work.dispose();
       check(!accepted.isNull,"conservar resultado aceptado tras limpiar temporales");
       check(!base.isNull && !detail.isNull && !mask.isNull,"conservar entradas");
-      console.writeln("PASS: procesos nativos, máscara, selección completa, intensidad cero, ensayos independientes y aceptación.");
+      console.writeln("PASS: callbacks con controles PJSR reales, procesos nativos, máscara, selección completa, intensidad cero, ensayos independientes y aceptación.");
       new MessageBox("Pruebas sintéticas completadas. Falta revisar la interfaz y los datos astronómicos reales.","Mezcla de focales",StdIcon_Information,StdButton_Ok).execute();
    }
    finally

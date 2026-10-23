@@ -6,7 +6,44 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-let registry, failure, ctx;
+let registry, failure, ctx, executeDialog, messages;
+// UI adapter: exercises the real dialog classes and their callbacks. Sizes and
+// drawing calls are synthetic; this cannot validate Qt layout or PJSR bindings.
+class FakeControl {
+  constructor(parent) { this.children=[]; this.enabled=true; this.width=350; this.height=300; this.text=''; this.paints=[]; if(parent)parent.children.push(this); }
+  setScaledMinSize(w,h) { this.width=w;this.height=h; }
+  setScaledMinWidth(w) { this.width=Math.max(this.width,w); }
+  setScaledFixedWidth(w) { this.width=w; }
+  adjustToContents() {}
+  update() { this.repaintRequests=(this.repaintRequests||0)+1; }
+}
+class FakeDialog extends FakeControl {
+  ok() { this.accepted=true; }
+  cancel() { this.accepted=false; }
+  execute() { if(executeDialog)executeDialog(this);return !!this.accepted; }
+}
+class FakeButton extends FakeControl {
+  click() { if(this.enabled && this.onClick)this.onClick(); }
+}
+class FakeSpinBox extends FakeControl {
+  constructor(parent) { super(parent);this.minValue=0;this.maxValue=99;this._value=0; }
+  get value() { return this._value; }
+  set value(n) { this._value=Math.max(this.minValue,Math.min(this.maxValue,n)); }
+  userValue(n) { if(!this.enabled)return;this.value=n;if(this.onValueUpdated)this.onValueUpdated(this.value); }
+  setRange(a,b) { this.minValue=a;this.maxValue=b; }
+}
+class FakeViewList extends FakeControl {
+  getMainViews() { this.views=[...registry.values()].map(w=>w.mainView);this.currentView={isNull:true}; }
+}
+class FakeSizer { add() {} addStretch() {} }
+class FakeGraphics {
+  constructor(control) { this.control=control;this.calls=[];control.paints.push(this); }
+  fillRect(...args) { this.calls.push(['fill',...args]); }
+  drawScaledBitmapRect(...args) { this.calls.push(['bitmap',...args]); }
+  drawLine(...args) { this.calls.push(['line',...args]); }
+  drawRect(...args) { this.calls.push(['rect',...args]); }
+  end() { this.ended=true; }
+}
 class FakeImage {
   constructor(w,h,c=1) { this.width=w; this.height=h; this.numberOfChannels=c; this.numberOfNominalChannels=c; this.isColor=c===3; this.data=new Float64Array(w*h*c); this.selection={channel:0,rect:'selected ROI'}; this.stack=[]; }
   sample(x,y,c) { return this.data[(y*this.width+x)*this.numberOfChannels+c]; }
@@ -68,12 +105,19 @@ class FakeConvolution {
   }
 }
 beforeEach(()=>{
-  registry=new Map();failure=null;
-  ctx=vm.createContext({Dialog:class{},ImageWindow:FakeWindow,PixelMath:FakePixelMath,Convolution:FakeConvolution,
+  registry=new Map();failure=null;executeDialog=null;messages=[];
+  ctx=vm.createContext({Dialog:FakeDialog,Control:FakeControl,Label:FakeControl,Edit:FakeControl,
+    CheckBox:FakeControl,TextBox:FakeControl,SpinBox:FakeSpinBox,Slider:FakeSpinBox,
+    PushButton:FakeButton,ViewList:FakeViewList,VerticalSizer:FakeSizer,HorizontalSizer:FakeSizer,
+    Graphics:FakeGraphics,Pen:class{},Brush:class{},MouseButton:{Left:1},
+    MessageBox:class{constructor(message){messages.push(message);}execute(){return 1;}},
+    StdIcon_Error:0,StdIcon_Warning:1,StdButton_Ok:1,CoreApplication:{processEvents(){}},
+    ImageWindow:FakeWindow,PixelMath:FakePixelMath,Convolution:FakeConvolution,
     console:{warningln(){},writeln(){}}});
   const file=path.join(__dirname,'../src/scripts/crinconlab/Mezcla_Focales.js');
   const code=fs.readFileSync(file,'utf8').split('#ifndef CR_MF_LIBRARY')[0].replace(/^#.*$/gm,'');
   vm.runInContext(code,ctx,{filename:file});
+  vm.runInContext('this.MaskDialog=MF_MaskDialog;this.SetupDialog=MF_SetupDialog;this.PreviewDialog=MF_PreviewDialog;',ctx);
 });
 function fixture(same=false) {
   const base=new FakeWindow(32,32,1,32,true,false,'Base');
@@ -89,6 +133,12 @@ function fixture(same=false) {
 }
 function almost(a,b,eps=1e-10) { assert.ok(Math.abs(a-b)<eps,`${a} != ${b}`); }
 function box(x0=5,y0=5,x1=27,y1=27) { return [{x:x0,y:y0},{x:x1,y:y0},{x:x1,y:y1},{x:x0,y:y1}]; }
+function button(dialog,text) { const b=dialog.children.find(c=>c instanceof FakeButton&&c.text===text);assert.ok(b,'Missing button '+text);return b; }
+function screen(pane,x,y,w=32,h=32) {
+  const s=Math.min(pane.width/w,pane.height/h);return [(pane.width-w*s)/2+x*s,(pane.height-h*s)/2+y*s];
+}
+function clickPoint(dialog,x,y) { const p=screen(dialog.detailPane,x,y);dialog.detailPane.onMousePress(...p,1);dialog.detailPane.onMouseRelease(...p,1); }
+function drawBox(dialog) { box().forEach(p=>clickPoint(dialog,p.x,p.y));dialog.closePolygon.click(); }
 
 test('missing registration, wrong mask and invalid scale ranges are rejected',()=>{
   const c=fixture(); c.mask.image.width=31;
@@ -265,5 +315,91 @@ test('selection requires closure, allows correction and undo, and enforces the v
   const invalid=new ctx.MF_PolygonSelection(32,32);
   [[4,4],[28,28],[4,28],[28,4]].forEach(([x,y])=>invalid.add(x,y));
   assert.throws(()=>invalid.close(),/cruzarse/);assert.equal(invalid.closed,false);
+});
+
+test('UI: opening, clicks and closing via the first vertex enable preview and creation',()=>{
+  const c=fixture(),selection={...c.detail.image.selection},d=new ctx.MaskDialog(c.detail,2);
+  assert.equal(d.preview.enabled,false);assert.equal(d.create.enabled,false);assert.equal(d.vertexX.enabled,false);
+  box().forEach(p=>clickPoint(d,p.x,p.y));
+  assert.equal(d.selection.closed,false);assert.equal(d.preview.enabled,false);assert.equal(d.closePolygon.enabled,true);
+  clickPoint(d,5,5);
+  assert.equal(d.selection.closed,true);assert.equal(d.preview.enabled,true);assert.equal(d.create.enabled,true);
+  d.detailPane.onPaint();const paint=d.detailPane.paints.at(-1);
+  assert.equal(paint.calls.filter(c=>c[0]==='line').length,4);assert.equal(paint.ended,true);
+  assert.deepEqual(c.detail.image.selection,selection);assert.equal(registry.size,3);
+});
+test('UI: vertex zero drags correctly and numeric edits invalidate the displayed mask',()=>{
+  const c=fixture(),d=new ctx.MaskDialog(c.detail,2);drawBox(d);d.preview.click();
+  assert.ok(d.maskBitmap);
+  const pane=d.detailPane,start=screen(pane,5,5),end=screen(pane,7,6);
+  pane.onMousePress(...start,1);pane.onMouseMove(...end,1);pane.onMouseRelease(...end,1);
+  assert.deepEqual({...d.selection.points[0]},{x:7,y:6});assert.equal(pane.drag,null);
+  assert.equal(d.maskBitmap,null);assert.equal(d.vertex.value,1);assert.equal(d.vertexX.value,7);
+  d.vertex.userValue(2);d.vertexX.userValue(26);
+  assert.deepEqual({...d.selection.points[1]},{x:26,y:5});assert.equal(d.selection.points.length,4);
+  d.preview.click();assert.ok(d.maskBitmap);d.feather.userValue(1);assert.equal(d.maskBitmap,null);
+  assert.equal(d.preview.enabled,true);assert.equal(registry.size,3);
+});
+test('UI: crossing contours block creation, undo reopens, and clear resets the controls',()=>{
+  const c=fixture(),d=new ctx.MaskDialog(c.detail,2);
+  [[5,5],[27,27],[5,27],[27,5]].forEach(([x,y])=>clickPoint(d,x,y));d.closePolygon.click();
+  assert.equal(d.selection.closed,false);assert.equal(d.create.enabled,false);assert.match(d.status.text,/cruzarse/);
+  d.clear.click();assert.equal(d.selection.points.length,0);assert.equal(d.vertex.enabled,false);
+  drawBox(d);d.preview.click();d.undo.click();
+  assert.equal(d.selection.closed,false);assert.equal(d.selection.points.length,4);assert.equal(d.maskBitmap,null);
+  assert.equal(d.create.enabled,false);d.undo.click();assert.equal(d.selection.points.length,3);
+  d.fullFrame.click();assert.equal(d.selection.closed,true);assert.equal(d.create.enabled,true);
+  d.clear.click();assert.equal(d.preview.enabled,false);assert.equal(d.undo.enabled,false);
+});
+test('UI: cancellation and failed renders leave no images and preserve the input selection',()=>{
+  const c=fixture(),selection={...c.detail.image.selection};
+  failure='render';assert.throws(()=>new ctx.MaskDialog(c.detail,2),/render failure/);
+  assert.deepEqual(c.detail.image.selection,selection);assert.equal(registry.size,3);
+  failure=null;const d=new ctx.MaskDialog(c.detail,2);drawBox(d);d.preview.click();assert.ok(d.maskBitmap);
+  failure='render';d.preview.click();assert.equal(d.maskBitmap,null);assert.match(d.status.text,/render failure/);
+  assert.equal(d.busy,false);assert.equal(d.preview.enabled,true);assert.equal(registry.size,3);
+  failure=null;d.preview.click();assert.ok(d.maskBitmap);button(d,'Cancelar').click();
+  assert.equal(d.accepted,false);assert.equal(d.result,null);assert.equal(registry.size,3);
+});
+test('UI: creation errors keep the editor open and a retry retains only the accepted mask',()=>{
+  const c=fixture(),d=new ctx.MaskDialog(c.detail,2);drawBox(d);
+  failure='show';d.create.click();assert.equal(d.result,null);assert.notEqual(d.accepted,true);
+  assert.match(d.status.text,/show failure/);assert.equal(registry.size,3);
+  failure=null;d.create.click();assert.equal(d.accepted,true);assert.equal(d.result.shown,true);
+  assert.equal(registry.size,4);assert.equal(d.result.mainView.image.sample(16,5,0),1);
+});
+test('UI: setup receives the new mask and transition, and cancelling a second editor keeps them',()=>{
+  const c=fixture(),d=new ctx.SetupDialog();d.detail.currentView=c.detail;d.mask.currentView=c.mask;d.prepared.checked=true;
+  executeDialog=editor=>{drawBox(editor);editor.feather.userValue(3);editor.create.click();};
+  button(d,'Crear máscara…').click();
+  assert.notEqual(d.mask.currentView,c.mask);assert.equal(d.mask.currentView.image.numberOfChannels,1);
+  assert.equal(d.feather.value,3);assert.equal(d.prepared.checked,false);assert.equal(registry.size,4);
+  const saved=d.mask.currentView;d.prepared.checked=true;
+  executeDialog=editor=>{drawBox(editor);editor.preview.click();button(editor,'Cancelar').click();};
+  button(d,'Crear máscara…').click();assert.equal(d.mask.currentView,saved);
+  assert.equal(d.prepared.checked,true);assert.equal(registry.size,4);assert.equal(messages.length,0);
+});
+test('UI: comparison disables stale acceptance, survives recalculation failure and accepts a retry',()=>{
+  const c=fixture(),state=ctx.MF_prepare(c),d=new ctx.PreviewDialog(state);
+  assert.equal(d.ready,true);assert.equal(d.acceptButton.enabled,true);
+  const first=state.result;d.amount.userValue(60);assert.equal(d.acceptButton.enabled,false);
+  failure='render';d.updateButton.click();assert.equal(state.result,first);assert.equal(first.isNull,false);
+  assert.match(d.status.text,/render failure/);assert.equal(d.busy,false);assert.equal(d.updateButton.enabled,true);
+  assert.equal(d.acceptButton.enabled,false);
+  failure=null;d.updateButton.click();assert.equal(d.acceptButton.enabled,true);assert.equal(state.amount,0.6);
+  d.acceptButton.click();assert.equal(d.accepted,true);state.work.dispose();
+  assert.equal(registry.size,4);assert.equal(state.result.shown,true);
+});
+test('UI: both comparison panes share zoom, pan and drawing; back and discard route correctly',()=>{
+  const c=fixture(),state=ctx.MF_prepare(c),d=new ctx.PreviewDialog(state);
+  const left=d.originalPane,right=d.resultPane;left.width=right.width=16;left.height=right.height=16;d.fit();
+  const initial=d.camera.scale;right.onMouseWheel(8,8,1);assert.ok(d.camera.scale>initial);
+  const x=d.camera.x;left.onMousePress(8,8,1);left.onMouseMove(10,8,1);left.onMouseRelease();
+  assert.notEqual(d.camera.x,x);left.onPaint();right.onPaint();
+  const a=left.paints.at(-1),b=right.paints.at(-1);
+  assert.deepEqual(a.calls.find(c=>c[0]==='bitmap').slice(1,5),b.calls.find(c=>c[0]==='bitmap').slice(1,5));
+  assert.equal(a.ended,true);assert.equal(b.ended,true);
+  d.backButton.click();assert.equal(d.returnToSetup,true);assert.equal(d.accepted,false);
+  d.closeButton.click();assert.equal(d.returnToSetup,false);state.work.dispose();assert.equal(registry.size,3);
 });
 

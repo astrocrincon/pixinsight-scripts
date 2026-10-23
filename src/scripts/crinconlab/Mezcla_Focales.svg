@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <title>Mezcla de focales</title>
+  <desc>Dos cuadrados concéntricos unidos por sus cuatro vértices correspondientes.</desc>
+  <g fill="none" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M4 4 11 11 M28 4 21 11 M28 28 21 21 M4 28 11 21" stroke="#438fce" stroke-width="1.5"/>
+    <rect x="4" y="4" width="24" height="24" stroke="#438fce" stroke-width="2"/>
+    <rect x="11" y="11" width="10" height="10" stroke="#20ad9e" stroke-width="2"/>
+  </g>
+</svg>

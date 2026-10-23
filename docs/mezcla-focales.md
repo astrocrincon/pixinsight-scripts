@@ -1,14 +1,14 @@
-# Mezcla de focales — 0.3.0 de desarrollo
+# Mezcla de focales — 0.3.1 de desarrollo
 
 Primera implementación para combinar una base de gran campo con el detalle de una focal larga, sobre imágenes **ya estiradas y sin estrellas**. No se aplica STF adicional.
 
 ## Instalar para probar
 
-1. Descargar `src/scripts/crinconlab/Mezcla_Focales.js` y guardarlo en una carpeta permanente.
+1. Descargar `src/scripts/crinconlab/Mezcla_Focales.js` y `src/scripts/crinconlab/Mezcla_Focales.svg` y guardarlos juntos en una carpeta permanente. El SVG es el icono del script: dos cuadrados concéntricos unidos por sus vértices.
 2. En PixInsight, abrir **Script → Feature Scripts… → Add** y seleccionar esa carpeta.
 3. Ejecutar **Script → Utilities → Mezcla de focales**. También se puede abrir el archivo en el editor de scripts y ejecutarlo desde allí.
 
-El script es autocontenido, aparte de cabeceras y procesos estándar de PixInsight. Está escrito para el motor V8. No requiere ImageSolver ni SPCC. Todavía no está firmado ni publicado mediante el gestor de actualizaciones.
+El cálculo está contenido en un único archivo JavaScript, aparte de cabeceras y procesos estándar de PixInsight; el SVG aporta el icono mediante `#feature-icon`. Está escrito para el motor V8. No requiere ImageSolver ni SPCC. Todavía no está firmado ni publicado mediante el gestor de actualizaciones. La carga del icono en PixInsight está pendiente de comprobación nativa.
 
 ## Preparar las entradas
 
@@ -84,11 +84,13 @@ La implementación mantiene varias imágenes a resolución completa; con imágen
 node --test tests/mezcla_focales.test.cjs
 ```
 
-Hay 18 pruebas. Se comprueban geometría de las entradas, identidad con intensidad cero y con entradas iguales, cobertura, conservación de originales, independencia de ensayos, errores y limpieza de temporales, bloqueo de aceptación desactualizada, estimación de ganancia y geometría de navegación. También se comprueban la conversión de coordenadas en un panel con márgenes, cobertura girada y cóncava, independencia del sentido y del primer vértice, lienzo completo, cierre y deshacer, límite de vértices, rechazo de contornos ambiguos, creación de cobertura independiente del brillo, coincidencia entre la máscara previsualizada y la de la mezcla, ausencia de doble suavizado y limpieza tras fallos de creación o representación. Los procesos PJSR se representan mediante adaptadores en memoria; estas pruebas no validan los procesos ni la interfaz nativos.
+Hay 26 pruebas. Se comprueban geometría de las entradas, identidad con intensidad cero y con entradas iguales, cobertura, conservación de originales, independencia de ensayos, errores y limpieza de temporales, bloqueo de aceptación desactualizada, estimación de ganancia y geometría de navegación. También se comprueban la conversión de coordenadas en un panel con márgenes, cobertura girada y cóncava, independencia del sentido y del primer vértice, lienzo completo, cierre y deshacer, límite de vértices, rechazo de contornos ambiguos, creación de cobertura independiente del brillo, coincidencia entre la máscara previsualizada y la de la mezcla, ausencia de doble suavizado y limpieza tras fallos de creación o representación.
+
+Ocho de esas pruebas instancian las clases reales de los diálogos sobre controles simulados y ejecutan sus callbacks: clics y cierre por el primer vértice, arrastre del vértice cero, edición numérica, invalidación de la vista, bloqueo de cruces, deshacer y borrar, cancelación, creación y reintento tras errores, transferencia de máscara y transición al diálogo principal, aceptación de la comparación y navegación sincronizada. Los controles registran las órdenes de dibujo. Estas pruebas comprueban la lógica de interacción; no muestran una interfaz ni verifican el diseño visual, los eventos de Qt o las API nativas. Los procesos PJSR también se representan mediante adaptadores en memoria.
 
 ### Pendiente en PixInsight
 
-No hay una instalación de PixInsight en este entorno. Se incluye `tests/Test_Mezcla_Focales_PixInsight.js` para ejecutar una prueba sintética de los procesos nativos. Descargar el repositorio completo y conservar las rutas; ejecutar ese archivo desde el editor de scripts. La prueba crea y elimina únicamente sus propias imágenes sintéticas y temporales.
+No hay una instalación de PixInsight ni un escritorio gráfico en este entorno. Se incluye `tests/Test_Mezcla_Focales_PixInsight.js` para ejecutar una prueba sintética de los procesos nativos y de callbacks del editor de máscara con controles PJSR reales. Descargar el repositorio completo y conservar las rutas; ejecutar ese archivo desde el editor de scripts. La prueba crea y elimina únicamente sus propias imágenes sintéticas y temporales. Los callbacks se invocan desde el código, sin abrir el diálogo modal: su ejecución no sustituye la prueba visual. Este archivo nativo no se ha ejecutado aquí.
 
 Después hay que comprobar visualmente el editor de máscara (clics para añadir y cerrar, arrastre de vértices, coordenadas, deshacer, borrar, transición, cancelar y selección de la nueva imagen), el diálogo de mezcla, el zoom y el desplazamiento, y probar una pareja real de imágenes. Revisar especialmente el borde de cobertura, zonas de polvo tenue, ruido y crominancia antes de considerar una primera versión distribuible.
 

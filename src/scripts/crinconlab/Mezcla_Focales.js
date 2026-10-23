@@ -1,6 +1,7 @@
 // Copyright © Carlos Rincón 2026
 #feature-id crinconlab.MezclaFocales : Utilities > Mezcla de focales
-#feature-info Mezcla selectiva de detalle entre focales. Imágenes estiradas, sin estrellas y registradas. Versión de desarrollo 0.3.0.
+#feature-icon Mezcla_Focales.svg
+#feature-info Mezcla selectiva de detalle entre focales. Imágenes estiradas, sin estrellas y registradas. Versión de desarrollo 0.3.1.
 #engine v8
 #include <pjsr/Sizer.jsh>
 #include <pjsr/StdIcon.jsh>
@@ -13,7 +14,7 @@
  * Las bandas se obtienen por diferencia de gaussianas normalizadas con máscara;
  * no son las capas de MultiscaleLinearTransform.
  */
-var MF_VERSION = "0.3.0";
+var MF_VERSION = "0.3.1";
 
 function MF_clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
 function MF_number(value, name, low, high)

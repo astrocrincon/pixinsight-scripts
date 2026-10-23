@@ -39,3 +39,5 @@ La versión de desarrollo [Mezcla_Focales.js](src/scripts/crinconlab/Mezcla_Foca
 
 Consulta [entradas, controles, método y límites](docs/mezcla-focales.md). Las pruebas fuera de PixInsight se ejecutan con `node --test tests/mezcla_focales.test.cjs`. La ejecución con los procesos y la interfaz nativos sigue pendiente; se incluye una [prueba sintética para PixInsight](tests/Test_Mezcla_Focales_PixInsight.js).
 
+El [icono SVG](src/scripts/crinconlab/Mezcla_Focales.svg) debe guardarse junto al archivo JavaScript al instalarlo.
+
